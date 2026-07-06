@@ -1,0 +1,18 @@
+# KiCad backup files
+*-backups/
+*.kicad_prl
+
+# KiCad cache files
+fp-info-cache
+
+# KiCad lock files
+*.lck
+~*.lck
+
+# Temporary files
+*~
+\#*\#
+.#*
+
+# Claude Code settings
+.claude/
