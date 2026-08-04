@@ -176,8 +176,8 @@ upload() {
         esptool_path="$VENV_DIR/bin/esptool.py"
     fi
 
-    log "Flashing firmware using $esptool_path..."
-    python3 "$esptool_path" --chip esp32s3 \
+    log "Flashing firmware using esptool..."
+    "$VENV_DIR/bin/python" -m esptool --chip esp32s3 \
         --port "$UART_DEV" \
         --baud 460800 \
         --before no_reset \
