@@ -15,6 +15,7 @@
  * controllers. This firmware keeps SPI pins as inputs to avoid interference.
  */
 
+#include <Arduino.h>
 #include <TinyGPSPlus.h>
 
 // Pin Definitions - SPI (directly expose as inputs - shared bus with RPi)
