@@ -7,12 +7,15 @@
 #   ./deploy.sh build    - Pull latest and build only (no upload)
 #   ./deploy.sh upload   - Upload without pulling
 #   ./deploy.sh monitor  - Open serial monitor
+#   ./deploy.sh setup    - Run first-time setup
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
+VENV_DIR="$SCRIPT_DIR/.venv"
+PIO="$VENV_DIR/bin/pio"
 
 # Colors
 RED='\033[0;31m'
@@ -24,13 +27,17 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Check for PlatformIO
+# Check for venv/PlatformIO
 check_pio() {
-    if ! command -v pio &> /dev/null; then
-        warn "PlatformIO not found. Installing..."
-        pip3 install --user platformio
-        export PATH="$HOME/.local/bin:$PATH"
+    if [ ! -f "$PIO" ]; then
+        error "PlatformIO not installed. Run: ./deploy.sh setup"
     fi
+}
+
+# First-time setup
+setup() {
+    log "Running first-time setup..."
+    "$SCRIPT_DIR/rpi-setup.sh"
 }
 
 # Pull latest from git
@@ -46,7 +53,7 @@ pull() {
 build() {
     log "Building firmware..."
     cd "$SCRIPT_DIR"
-    pio run
+    "$PIO" run
     log "Build complete."
 }
 
@@ -62,7 +69,7 @@ upload() {
     fi
 
     log "Found device: $ESP_DEV"
-    pio run -t upload --upload-port "$ESP_DEV"
+    "$PIO" run -t upload --upload-port "$ESP_DEV"
     log "Upload complete."
 }
 
@@ -70,11 +77,14 @@ upload() {
 monitor() {
     log "Starting serial monitor (Ctrl+C to exit)..."
     cd "$SCRIPT_DIR"
-    pio device monitor
+    "$PIO" device monitor
 }
 
 # Main
 case "${1:-deploy}" in
+    setup)
+        setup
+        ;;
     build)
         check_pio
         pull

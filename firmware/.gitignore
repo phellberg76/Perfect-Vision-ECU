@@ -4,6 +4,9 @@
 .pioenvs/
 .piolibdeps/
 
+# Python virtual environment
+.venv/
+
 # Compiled files
 *.o
 *.elf
