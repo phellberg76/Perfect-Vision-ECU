@@ -40,35 +40,45 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Setup GPIO pins
-setup_gpio() {
-    # Export GPIOs if not already
-    if [ ! -d "/sys/class/gpio/gpio$GPIO_EN" ]; then
-        echo $GPIO_EN > /sys/class/gpio/export 2>/dev/null || true
-    fi
-    if [ ! -d "/sys/class/gpio/gpio$GPIO_IO0" ]; then
-        echo $GPIO_IO0 > /sys/class/gpio/export 2>/dev/null || true
-    fi
-    sleep 0.1
+# Set GPIO using pinctrl (modern RPi OS) or fallback to gpioset/sysfs
+gpio_set() {
+    local pin=$1
+    local value=$2
 
-    # Set as outputs
-    echo out > /sys/class/gpio/gpio$GPIO_EN/direction
-    echo out > /sys/class/gpio/gpio$GPIO_IO0/direction
+    if command -v pinctrl &> /dev/null; then
+        # Modern RPi OS - use pinctrl
+        pinctrl set $pin op dl  # Set as output, drive low first
+        if [ "$value" = "1" ]; then
+            pinctrl set $pin op dh  # Drive high
+        else
+            pinctrl set $pin op dl  # Drive low
+        fi
+    elif command -v gpioset &> /dev/null; then
+        # Use libgpiod
+        gpioset gpiochip0 $pin=$value
+    else
+        # Fallback to sysfs (deprecated)
+        if [ ! -d "/sys/class/gpio/gpio$pin" ]; then
+            echo $pin > /sys/class/gpio/export 2>/dev/null || true
+            sleep 0.1
+        fi
+        echo out > /sys/class/gpio/gpio$pin/direction 2>/dev/null || true
+        echo $value > /sys/class/gpio/gpio$pin/value
+    fi
 }
 
 # Reset ESP32 into bootloader mode
 enter_bootloader() {
     log "Entering bootloader mode..."
-    setup_gpio
 
     # IO0 LOW (boot mode)
-    echo 0 > /sys/class/gpio/gpio$GPIO_IO0/value
+    gpio_set $GPIO_IO0 0
     sleep 0.1
 
     # Pulse EN LOW then HIGH (reset)
-    echo 0 > /sys/class/gpio/gpio$GPIO_EN/value
+    gpio_set $GPIO_EN 0
     sleep 0.1
-    echo 1 > /sys/class/gpio/gpio$GPIO_EN/value
+    gpio_set $GPIO_EN 1
     sleep 0.3
 
     log "ESP32 should now be in bootloader mode"
@@ -77,16 +87,15 @@ enter_bootloader() {
 # Reset ESP32 for normal boot
 reset_esp32() {
     log "Resetting ESP32..."
-    setup_gpio
 
     # IO0 HIGH (normal boot)
-    echo 1 > /sys/class/gpio/gpio$GPIO_IO0/value
+    gpio_set $GPIO_IO0 1
     sleep 0.1
 
     # Pulse EN LOW then HIGH (reset)
-    echo 0 > /sys/class/gpio/gpio$GPIO_EN/value
+    gpio_set $GPIO_EN 0
     sleep 0.1
-    echo 1 > /sys/class/gpio/gpio$GPIO_EN/value
+    gpio_set $GPIO_EN 1
 
     log "ESP32 reset complete"
 }
