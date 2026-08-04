@@ -1,0 +1,16 @@
+# PlatformIO build artifacts
+.pio/
+.vscode/
+.pioenvs/
+.piolibdeps/
+
+# Compiled files
+*.o
+*.elf
+*.bin
+*.hex
+
+# IDE files
+*.swp
+*.swo
+*~
