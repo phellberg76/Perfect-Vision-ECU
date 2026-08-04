@@ -22,9 +22,9 @@ sudo apt-get install -y python3-pip python3-venv python3-full git
 log "Creating Python virtual environment..."
 python3 -m venv "$VENV_DIR"
 
-log "Installing PlatformIO in venv..."
+log "Installing PlatformIO and esptool in venv..."
 "$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install platformio
+"$VENV_DIR/bin/pip" install platformio esptool
 
 log "Installing ESP32 platform..."
 "$VENV_DIR/bin/pio" pkg install -g -p espressif32

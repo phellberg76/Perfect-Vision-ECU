@@ -25,6 +25,23 @@ VENV_DIR="$SCRIPT_DIR/.venv"
 PIO="$VENV_DIR/bin/pio"
 ESPTOOL="$VENV_DIR/bin/esptool.py"
 
+# Find esptool - check venv first, then PlatformIO packages
+find_esptool() {
+    if [ -f "$ESPTOOL" ]; then
+        echo "$ESPTOOL"
+    elif [ -f "$VENV_DIR/bin/esptool" ]; then
+        echo "$VENV_DIR/bin/esptool"
+    else
+        # Use PlatformIO's bundled esptool
+        local pio_esptool=$(find ~/.platformio/packages/tool-esptoolpy -name "esptool.py" 2>/dev/null | head -1)
+        if [ -n "$pio_esptool" ]; then
+            echo "$pio_esptool"
+        else
+            echo ""
+        fi
+    fi
+}
+
 # Hardware connections
 UART_DEV="/dev/ttyAMA0"
 GPIO_EN=17      # ESP32 EN (reset)
@@ -151,8 +168,16 @@ upload() {
         error "Firmware not found. Run build first."
     fi
 
-    log "Flashing firmware..."
-    "$ESPTOOL" --chip esp32s3 \
+    # Find esptool
+    local esptool_path=$(find_esptool)
+    if [ -z "$esptool_path" ]; then
+        error "esptool not found. Installing..."
+        "$VENV_DIR/bin/pip" install esptool
+        esptool_path="$VENV_DIR/bin/esptool.py"
+    fi
+
+    log "Flashing firmware using $esptool_path..."
+    python3 "$esptool_path" --chip esp32s3 \
         --port "$UART_DEV" \
         --baud 460800 \
         --before no_reset \
