@@ -57,6 +57,12 @@ int nmeaIndex = 0;
 unsigned long messagesReceived = 0;
 unsigned long lastFixTime = 0;
 
+// Forward declarations
+void processNMEA(const char* sentence);
+void processCommands();
+void outputJSON();
+void printStatus();
+
 void setup() {
     // CRITICAL: Set SPI pins as inputs immediately to avoid bus contention
     // The SPI bus is shared with RPi <-> MCP2515 CAN controllers
