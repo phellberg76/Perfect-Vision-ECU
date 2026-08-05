@@ -15,15 +15,25 @@ using ESP-Hosted-FG over SPI.
 | Data Ready | GPIO6 | IO4 |
 | Reset | GPIO17 | EN |
 
+## SPI Bus Sharing
+
+The SPI bus is shared between three devices:
+
+| Device | Chip Select | RPi GPIO |
+|--------|-------------|----------|
+| MCP2515 CAN0 | CE0 | GPIO8 |
+| MCP2515 CAN1 | CE1 | GPIO7 |
+| ESP32 SPI Slave | CE2 | GPIO4 |
+
+All three devices can coexist on the same SPI bus. The Linux SPI subsystem
+handles arbitration - only one chip select is active at a time.
+
 ## Important Note
 
 When using ESP-Hosted mode, the ESP32 operates as an SPI slave and:
-- GPS functionality is **disabled** (UART1 not available in this mode)
-- CAN controllers share the SPI bus - may need coordination
-
-Consider running in either:
-- **GPS Mode**: Current firmware with GPS + UART communication
-- **WiFi Mode**: ESP-Hosted firmware for network connectivity
+- GPS functionality is **disabled** (ESP32 runs different firmware)
+- CAN controllers continue to work (separate chip selects)
+- WiFi interface appears as `espsta0` on the RPi
 
 ## Setup Instructions
 
