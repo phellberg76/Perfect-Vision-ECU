@@ -232,7 +232,7 @@ void sendGpsJson() {
 
     if (gps.speed.isValid()) {
         RPI_Serial.print(",\"speed\":");
-        RPI_Serial.print(gps.speed.kmph(), 2);
+        RPI_Serial.print(gps.speed.mps(), 2);
     }
 
     if (gps.course.isValid()) {
