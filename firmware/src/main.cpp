@@ -64,6 +64,9 @@
 #define PIN_RPI_TX    43   // To RPi RX
 #define PIN_RPI_RX    44   // From RPi TX
 
+// Status LED
+#define PIN_LED       46   // Active HIGH - indicates healthy operation
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -162,6 +165,10 @@ void setup() {
     // Send early startup message
     PPP_Serial.println("{\"type\":\"boot\",\"msg\":\"ESP32 starting...\"}");
 
+    // Initialize status LED (off during init)
+    pinMode(PIN_LED, OUTPUT);
+    digitalWrite(PIN_LED, LOW);
+
     // Initialize handshake pin (active low = ready)
     pinMode(PIN_HANDSHAKE, OUTPUT);
     digitalWrite(PIN_HANDSHAKE, HIGH);  // Not ready initially
@@ -195,6 +202,10 @@ void setup() {
 
     // Signal ready
     digitalWrite(PIN_HANDSHAKE, LOW);
+
+    // Turn on status LED - setup complete, healthy operation
+    digitalWrite(PIN_LED, HIGH);
+    PPP_Serial.println("{\"type\":\"ready\",\"led\":\"on\"}");
 }
 
 // =============================================================================
