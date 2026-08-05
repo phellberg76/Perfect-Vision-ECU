@@ -1,0 +1,78 @@
+/*
+ * Device Tree Overlay for ESP32 SPI Slave on RPi GPS Hat v4
+ *
+ * Adds ESP32 as a third SPI device alongside the MCP2515 CAN controllers.
+ *
+ * SPI Bus Configuration:
+ *   CE0 (GPIO8)  -> MCP2515 CAN0
+ *   CE1 (GPIO7)  -> MCP2515 CAN1
+ *   CE2 (GPIO4)  -> ESP32 SPI Slave
+ *
+ * ESP32 Connections:
+ *   RPi GPIO4  -> ESP32 IO10 (CS)
+ *   RPi GPIO5  -> ESP32 IO3  (Handshake - input from ESP32)
+ *   RPi GPIO6  -> ESP32 IO4  (Data Ready - input from ESP32)
+ *   RPi GPIO10 -> ESP32 IO11 (MOSI)
+ *   RPi GPIO9  -> ESP32 IO13 (MISO)
+ *   RPi GPIO11 -> ESP32 IO12 (SCLK)
+ *
+ * Compile with:
+ *   dtc -@ -I dts -O dtb -o esp32-spi-slave.dtbo esp32-spi-slave.dts
+ *
+ * Install:
+ *   sudo cp esp32-spi-slave.dtbo /boot/firmware/overlays/
+ *
+ * Enable in /boot/firmware/config.txt:
+ *   dtoverlay=esp32-spi-slave
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711", "brcm,bcm2837", "brcm,bcm2836", "brcm,bcm2835";
+
+    /* Configure GPIO4 as CS2 output */
+    fragment@0 {
+        target = <&gpio>;
+        __overlay__ {
+            esp32_cs_pin: esp32_cs_pin {
+                brcm,pins = <4>;
+                brcm,function = <1>;  /* Output */
+                brcm,pull = <2>;      /* Pull-up when idle */
+            };
+
+            /* Handshake and data ready as inputs with pull-ups */
+            esp32_status_pins: esp32_status_pins {
+                brcm,pins = <5 6>;
+                brcm,function = <0 0>;  /* Input */
+                brcm,pull = <2 2>;      /* Pull-up */
+            };
+        };
+    };
+
+    /* Extend SPI0 chip select pins to include GPIO4 */
+    fragment@1 {
+        target = <&spi0_cs_pins>;
+        __overlay__ {
+            brcm,pins = <8 7 4>;  /* CE0=GPIO8, CE1=GPIO7, CE2=GPIO4 */
+        };
+    };
+
+    /* Add ESP32 as spidev device */
+    fragment@2 {
+        target = <&spi0>;
+        __overlay__ {
+            status = "okay";
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            esp32: spidev@2 {
+                compatible = "spidev";
+                reg = <2>;
+                spi-max-frequency = <1000000>;  /* 1MHz for reliability */
+                status = "okay";
+            };
+        };
+    };
+};

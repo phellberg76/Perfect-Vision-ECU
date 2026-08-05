@@ -1,132 +1,291 @@
 /*
- * Raspberry Pi Backup Power and GPS Hat v4 - ESP32-S3 Firmware
+ * Raspberry Pi Backup Power and GPS Hat v4 - Unified Firmware
  *
- * Purpose:
- *   - Decode NMEA from NEO-M9N GPS and send JSON to RPi
- *   - Provide watchdog/heartbeat messaging
- *   - Support sleep/wake commands from RPi
- *   - Keep SPI pins high-Z to not interfere with CAN controllers
+ * Features:
+ *   - GPS: Read NMEA from NEO-M9N, provide data via SPI slave
+ *   - WiFi: Connect as client to upstream network
+ *   - PPP: Provide network to RPi via PPP over UART
+ *   - SPI Slave: Respond to RPi commands, send GPS data
  *
  * Hardware:
  *   - ESP32-S3-MINI-1 module
- *   - NEO-M9N GPS module on UART1 (TXD1/RXD1)
- *   - RPi connected via UART0 (TXD0/RXD0 = GPIO43/44)
+ *   - NEO-M9N GPS on UART1 (GPIO17/18)
+ *   - RPi UART0 (GPIO43/44) for PPP
+ *   - RPi SPI via GPIO4 (CS), shared bus with MCP2515 CAN controllers
  *
- * JSON Messages to RPi:
- *   {"type":"gps","lat":59.123,"lng":18.456,"alt":45.2,"speed":12.5,"course":180.0,"sats":8,"hdop":1.2,"fix":true,"time":"2026-08-05T09:45:00Z"}
- *   {"type":"heartbeat","uptime":1234,"gps_ok":true,"sats":8}
- *   {"type":"ack","cmd":"sleep","status":"ok"}
+ * Communication:
+ *   - UART0: PPP link for network sharing
+ *   - SPI Slave: Commands and GPS JSON responses
  *
- * Commands from RPi:
- *   {"cmd":"status"}     - Request status
- *   {"cmd":"sleep"}      - Enter deep sleep
- *   {"cmd":"wake"}       - Configure wake sources
- *   {"cmd":"gps_rate",value":1000}  - Set GPS update rate in ms
- *   PING                 - Simple watchdog ping (responds with PONG)
+ * SPI Protocol:
+ *   RPi sends command byte, ESP32 responds with data
+ *   Commands:
+ *     0x01 = Get GPS JSON
+ *     0x02 = Get status JSON
+ *     0x03 = Get WiFi status
+ *     0x10 = Set WiFi SSID (followed by null-terminated string)
+ *     0x11 = Set WiFi password (followed by null-terminated string)
+ *     0x12 = Connect WiFi
+ *     0x13 = Disconnect WiFi
+ *     0x20 = Start PPP mode
+ *     0x21 = Stop PPP mode
+ *     0xFE = Ping (responds with 0xFE)
+ *     0xFF = Reset ESP32
  */
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include <TinyGPSPlus.h>
+#include <Preferences.h>
+#include "driver/spi_slave.h"
+#include "esp_wifi.h"
+#include "ppp_server.h"
 
-// Pin Definitions - SPI (set as inputs - shared bus with RPi)
-#define PIN_SPI_MOSI  11
-#define PIN_SPI_MISO  13
-#define PIN_SPI_SCK   12
-#define PIN_SPI_CS    4
+// =============================================================================
+// Pin Definitions
+// =============================================================================
 
-// Pin Definitions - GPS (UART1)
-#define PIN_GPS_TX    17
-#define PIN_GPS_RX    18
-#define PIN_LNA_EN    8
+// SPI Slave pins (directly from schematic)
+#define PIN_SPI_MOSI  11   // IO11 = MOSI from RPi GPIO10
+#define PIN_SPI_MISO  13   // IO13 = MISO to RPi GPIO9
+#define PIN_SPI_SCK   12   // IO12 = SCK from RPi GPIO11
+#define PIN_SPI_CS    10   // IO10 = CS from RPi GPIO4
 
-// Pin Definitions - RPi UART0
-#define PIN_RPI_TX    43
-#define PIN_RPI_RX    44
+// Control pins from RPi
+#define PIN_HANDSHAKE 3    // IO3 = RPi GPIO5 (data ready signal TO RPi)
+#define PIN_DATA_RDY  4    // IO4 = RPi GPIO6 (unused for now)
 
-// Timing
-#define GPS_UPDATE_INTERVAL   1000   // Send GPS JSON every 1 second
-#define HEARTBEAT_INTERVAL    5000   // Send heartbeat every 5 seconds
-#define WATCHDOG_TIMEOUT      30000  // Watchdog timeout 30 seconds
+// GPS UART1 pins
+#define PIN_GPS_TX    17   // To GPS RX
+#define PIN_GPS_RX    18   // From GPS TX
+#define PIN_LNA_EN    8    // GPS LNA enable
 
-// Serial settings
-#define GPS_BAUD      38400
-#define RPI_BAUD      115200
+// RPi UART0 pins (for PPP)
+#define PIN_RPI_TX    43   // To RPi RX
+#define PIN_RPI_RX    44   // From RPi TX
 
+// =============================================================================
+// Constants
+// =============================================================================
+
+#define GPS_BAUD           38400
+#define PPP_BAUD           115200
+#define SPI_BUFFER_SIZE    256
+#define GPS_UPDATE_MS      1000
+#define STATUS_UPDATE_MS   5000
+
+// SPI Commands
+#define CMD_GET_GPS        0x01
+#define CMD_GET_STATUS     0x02
+#define CMD_GET_WIFI       0x03
+#define CMD_SET_SSID       0x10
+#define CMD_SET_PASS       0x11
+#define CMD_WIFI_CONNECT   0x12
+#define CMD_WIFI_DISCONNECT 0x13
+#define CMD_PPP_START      0x20
+#define CMD_PPP_STOP       0x21
+#define CMD_PING           0xFE
+#define CMD_RESET          0xFF
+
+// =============================================================================
 // Objects
+// =============================================================================
+
 TinyGPSPlus gps;
-HardwareSerial GPS_Serial(1);
-HardwareSerial RPI_Serial(0);
+HardwareSerial GPS_Serial(1);   // UART1 for GPS
+HardwareSerial PPP_Serial(0);   // UART0 for PPP
+Preferences prefs;
+
+// PPP Server
+PPPServer pppServer(PPP_Serial);
+
+// SPI slave buffers
+WORD_ALIGNED_ATTR uint8_t spiRxBuf[SPI_BUFFER_SIZE];
+WORD_ALIGNED_ATTR uint8_t spiTxBuf[SPI_BUFFER_SIZE];
+
+// State
+String wifiSSID = "";
+String wifiPass = "";
+bool wifiConnected = false;
+bool pppActive = false;
+bool gpsHasFix = false;
 
 // Timing
 unsigned long lastGpsUpdate = 0;
-unsigned long lastHeartbeat = 0;
-unsigned long lastRpiPing = 0;
-unsigned long gpsUpdateInterval = GPS_UPDATE_INTERVAL;
+unsigned long lastStatusUpdate = 0;
+unsigned long bootTime = 0;
 
-// State
-bool gpsHasFix = false;
-bool rpiWatchdogEnabled = false;
+// GPS JSON buffer (pre-built for fast SPI response)
+char gpsJsonBuf[256] = "{\"type\":\"gps\",\"fix\":false}";
+char statusJsonBuf[256] = "{\"type\":\"status\"}";
+char wifiJsonBuf[256] = "{\"type\":\"wifi\",\"connected\":false}";
 
-// Forward declarations
-void processGPS();
-void processRPiCommands();
-void sendGpsJson();
-void sendHeartbeat();
-void sendAck(const char* cmd, const char* status);
-void sendError(const char* msg);
-void handleCommand(String& cmd);
-void enterSleep(int seconds);
+// =============================================================================
+// Forward Declarations
+// =============================================================================
+
+void setupSpiSlave();
+void setupGps();
+void setupWifi();
+void processGps();
+void processSpiCommand();
+void buildGpsJson();
+void buildStatusJson();
+void buildWifiJson();
+void handleSpiTransaction(spi_slave_transaction_t *trans);
+void connectWifi();
+void disconnectWifi();
+void startPpp();
+void stopPpp();
+
+// =============================================================================
+// SPI Slave Callback
+// =============================================================================
+
+// Called after SPI transaction completes
+void IRAM_ATTR spiTransactionComplete(spi_slave_transaction_t *trans) {
+    // Signal that we're ready for next transaction
+    gpio_set_level((gpio_num_t)PIN_HANDSHAKE, 0);
+}
+
+// =============================================================================
+// Setup
+// =============================================================================
 
 void setup() {
-    // CRITICAL: Set SPI pins as inputs to avoid bus contention
-    pinMode(PIN_SPI_MOSI, INPUT);
-    pinMode(PIN_SPI_MISO, INPUT);
-    pinMode(PIN_SPI_SCK, INPUT);
-    pinMode(PIN_SPI_CS, INPUT);
+    bootTime = millis();
 
-    // Initialize UART0 for RPi communication
-    RPI_Serial.begin(RPI_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
+    // Initialize handshake pin (active low = ready)
+    pinMode(PIN_HANDSHAKE, OUTPUT);
+    digitalWrite(PIN_HANDSHAKE, HIGH);  // Not ready initially
 
-    // Initialize GPS LNA
+    // Initialize GPS
+    setupGps();
+
+    // Load WiFi credentials
+    prefs.begin("wifi", true);
+    wifiSSID = prefs.getString("ssid", "");
+    wifiPass = prefs.getString("pass", "");
+    prefs.end();
+
+    // Initialize WiFi
+    setupWifi();
+
+    // Initialize SPI slave
+    setupSpiSlave();
+
+    // Initialize PPP serial (but don't start PPP yet)
+    PPP_Serial.begin(PPP_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
+
+    // Send startup message on PPP serial (before PPP mode)
+    PPP_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"2.0.0\",\"mode\":\"unified\"}");
+
+    // Build initial JSON buffers
+    buildGpsJson();
+    buildStatusJson();
+    buildWifiJson();
+
+    // Signal ready
+    digitalWrite(PIN_HANDSHAKE, LOW);
+}
+
+// =============================================================================
+// Main Loop
+// =============================================================================
+
+void loop() {
+    unsigned long now = millis();
+
+    // Process GPS data
+    processGps();
+
+    // Update GPS JSON periodically
+    if (now - lastGpsUpdate >= GPS_UPDATE_MS) {
+        lastGpsUpdate = now;
+        buildGpsJson();
+    }
+
+    // Update status JSON periodically
+    if (now - lastStatusUpdate >= STATUS_UPDATE_MS) {
+        lastStatusUpdate = now;
+        buildStatusJson();
+        buildWifiJson();
+    }
+
+    // Handle WiFi events
+    wifiConnected = (WiFi.status() == WL_CONNECTED);
+
+    // Handle UART0 based on mode
+    if (pppActive) {
+        // Process PPP frames
+        pppServer.process();
+
+        // Update PPP state
+        if (!pppServer.isConnected() && pppServer.getState() == PPP_STATE_ERROR) {
+            pppActive = false;
+        }
+    } else if (PPP_Serial.available()) {
+        // Command mode - handle text commands
+        String cmd = PPP_Serial.readStringUntil('\n');
+        cmd.trim();
+
+        // Simple commands before PPP mode
+        if (cmd == "STATUS") {
+            PPP_Serial.println(statusJsonBuf);
+        } else if (cmd == "GPS") {
+            PPP_Serial.println(gpsJsonBuf);
+        } else if (cmd == "WIFI") {
+            PPP_Serial.println(wifiJsonBuf);
+        } else if (cmd == "PPP_START") {
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"ppp\",\"status\":\"starting\"}");
+            delay(100);
+            startPpp();
+        } else if (cmd == "PPP_STOP") {
+            stopPpp();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"ppp\",\"status\":\"stopped\"}");
+        } else if (cmd == "RESET") {
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"reset\"}");
+            delay(100);
+            ESP.restart();
+        } else if (cmd.startsWith("WIFI_SSID ")) {
+            wifiSSID = cmd.substring(10);
+            prefs.begin("wifi", false);
+            prefs.putString("ssid", wifiSSID);
+            prefs.end();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"wifi_ssid\"}");
+        } else if (cmd.startsWith("WIFI_PASS ")) {
+            wifiPass = cmd.substring(10);
+            prefs.begin("wifi", false);
+            prefs.putString("pass", wifiPass);
+            prefs.end();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"wifi_pass\"}");
+        } else if (cmd == "WIFI_CONNECT") {
+            connectWifi();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"wifi_connect\"}");
+        } else if (cmd == "WIFI_DISCONNECT") {
+            disconnectWifi();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"wifi_disconnect\"}");
+        }
+    }
+
+    // Small delay to prevent tight loop
+    delay(1);
+}
+
+// =============================================================================
+// GPS Functions
+// =============================================================================
+
+void setupGps() {
+    // Enable GPS LNA
     pinMode(PIN_LNA_EN, OUTPUT);
     digitalWrite(PIN_LNA_EN, HIGH);
 
     // Initialize GPS serial
     GPS_Serial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
-
-    // Startup message
-    RPI_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"1.0.0\"}");
 }
 
-void loop() {
-    // Read GPS data
-    processGPS();
-
-    // Process commands from RPi
-    processRPiCommands();
-
-    // Send GPS update at interval
-    unsigned long now = millis();
-    if (now - lastGpsUpdate >= gpsUpdateInterval) {
-        lastGpsUpdate = now;
-        sendGpsJson();
-    }
-
-    // Send heartbeat
-    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-        lastHeartbeat = now;
-        sendHeartbeat();
-    }
-
-    // Check watchdog (if enabled)
-    if (rpiWatchdogEnabled && (now - lastRpiPing > WATCHDOG_TIMEOUT)) {
-        // RPi hasn't pinged - could trigger alert or action
-        RPI_Serial.println("{\"type\":\"warning\",\"msg\":\"watchdog_timeout\"}");
-        lastRpiPing = now; // Reset to avoid spam
-    }
-}
-
-void processGPS() {
+void processGps() {
     while (GPS_Serial.available()) {
         char c = GPS_Serial.read();
         gps.encode(c);
@@ -136,175 +295,233 @@ void processGPS() {
     gpsHasFix = gps.location.isValid() && gps.location.age() < 2000;
 }
 
-void processRPiCommands() {
-    if (!RPI_Serial.available()) return;
-
-    String cmd = RPI_Serial.readStringUntil('\n');
-    cmd.trim();
-
-    if (cmd.length() == 0) return;
-
-    // Simple PING/PONG for watchdog
-    if (cmd == "PING") {
-        RPI_Serial.println("PONG");
-        lastRpiPing = millis();
-        return;
-    }
-
-    // Handle JSON or simple commands
-    handleCommand(cmd);
-}
-
-void handleCommand(String& cmd) {
-    lastRpiPing = millis();  // Any command counts as activity
-
-    if (cmd == "STATUS" || cmd == "{\"cmd\":\"status\"}") {
-        sendHeartbeat();
-    }
-    else if (cmd == "SLEEP" || cmd.startsWith("{\"cmd\":\"sleep\"")) {
-        // Extract sleep duration if provided
-        int seconds = 0;
-        int idx = cmd.indexOf("\"seconds\":");
-        if (idx > 0) {
-            seconds = cmd.substring(idx + 10).toInt();
-        }
-        sendAck("sleep", "entering");
-        delay(100);
-        enterSleep(seconds);
-    }
-    else if (cmd.startsWith("{\"cmd\":\"gps_rate\"")) {
-        int idx = cmd.indexOf("\"value\":");
-        if (idx > 0) {
-            gpsUpdateInterval = cmd.substring(idx + 8).toInt();
-            if (gpsUpdateInterval < 100) gpsUpdateInterval = 100;
-            if (gpsUpdateInterval > 60000) gpsUpdateInterval = 60000;
-            sendAck("gps_rate", "ok");
-        } else {
-            sendError("missing value");
-        }
-    }
-    else if (cmd == "WATCHDOG_ON" || cmd == "{\"cmd\":\"watchdog\",\"enable\":true}") {
-        rpiWatchdogEnabled = true;
-        lastRpiPing = millis();
-        sendAck("watchdog", "enabled");
-    }
-    else if (cmd == "WATCHDOG_OFF" || cmd == "{\"cmd\":\"watchdog\",\"enable\":false}") {
-        rpiWatchdogEnabled = false;
-        sendAck("watchdog", "disabled");
-    }
-    else if (cmd == "RESET") {
-        sendAck("reset", "restarting");
-        delay(100);
-        ESP.restart();
-    }
-    else if (cmd == "GPS_RAW_ON") {
-        // Enable raw NMEA passthrough for debugging
-        RPI_Serial.println("{\"type\":\"mode\",\"raw\":true}");
-        while (true) {
-            if (GPS_Serial.available()) {
-                RPI_Serial.write(GPS_Serial.read());
-            }
-            if (RPI_Serial.available()) {
-                String c = RPI_Serial.readStringUntil('\n');
-                if (c == "GPS_RAW_OFF") {
-                    RPI_Serial.println("{\"type\":\"mode\",\"raw\":false}");
-                    break;
-                }
-            }
-        }
-    }
-}
-
-void sendGpsJson() {
-    RPI_Serial.print("{\"type\":\"gps\"");
+void buildGpsJson() {
+    char* p = gpsJsonBuf;
+    p += sprintf(p, "{\"type\":\"gps\"");
 
     if (gps.location.isValid()) {
-        RPI_Serial.print(",\"lat\":");
-        RPI_Serial.print(gps.location.lat(), 7);
-        RPI_Serial.print(",\"lng\":");
-        RPI_Serial.print(gps.location.lng(), 7);
+        p += sprintf(p, ",\"lat\":%.7f,\"lng\":%.7f",
+            gps.location.lat(), gps.location.lng());
     }
 
     if (gps.altitude.isValid()) {
-        RPI_Serial.print(",\"alt\":");
-        RPI_Serial.print(gps.altitude.meters(), 1);
+        p += sprintf(p, ",\"alt\":%.1f", gps.altitude.meters());
     }
 
     if (gps.speed.isValid()) {
-        RPI_Serial.print(",\"speed\":");
-        RPI_Serial.print(gps.speed.mps(), 2);
+        p += sprintf(p, ",\"speed\":%.2f", gps.speed.mps());
     }
 
     if (gps.course.isValid()) {
-        RPI_Serial.print(",\"course\":");
-        RPI_Serial.print(gps.course.deg(), 1);
+        p += sprintf(p, ",\"course\":%.1f", gps.course.deg());
     }
 
-    RPI_Serial.print(",\"sats\":");
-    RPI_Serial.print(gps.satellites.value());
+    p += sprintf(p, ",\"sats\":%d", gps.satellites.value());
 
     if (gps.hdop.isValid()) {
-        RPI_Serial.print(",\"hdop\":");
-        RPI_Serial.print(gps.hdop.hdop(), 2);
+        p += sprintf(p, ",\"hdop\":%.2f", gps.hdop.hdop());
     }
 
-    RPI_Serial.print(",\"fix\":");
-    RPI_Serial.print(gpsHasFix ? "true" : "false");
+    p += sprintf(p, ",\"fix\":%s", gpsHasFix ? "true" : "false");
 
     if (gps.date.isValid() && gps.time.isValid()) {
-        char timebuf[32];
-        snprintf(timebuf, sizeof(timebuf), "%04d-%02d-%02dT%02d:%02d:%02dZ",
+        p += sprintf(p, ",\"time\":\"%04d-%02d-%02dT%02d:%02d:%02dZ\"",
             gps.date.year(), gps.date.month(), gps.date.day(),
             gps.time.hour(), gps.time.minute(), gps.time.second());
-        RPI_Serial.print(",\"time\":\"");
-        RPI_Serial.print(timebuf);
-        RPI_Serial.print("\"");
     }
 
-    RPI_Serial.println("}");
+    sprintf(p, "}");
 }
 
-void sendHeartbeat() {
-    RPI_Serial.print("{\"type\":\"heartbeat\"");
-    RPI_Serial.print(",\"uptime\":");
-    RPI_Serial.print(millis() / 1000);
-    RPI_Serial.print(",\"gps_ok\":");
-    RPI_Serial.print(gpsHasFix ? "true" : "false");
-    RPI_Serial.print(",\"sats\":");
-    RPI_Serial.print(gps.satellites.value());
-    RPI_Serial.print(",\"gps_rate\":");
-    RPI_Serial.print(gpsUpdateInterval);
-    RPI_Serial.print(",\"watchdog\":");
-    RPI_Serial.print(rpiWatchdogEnabled ? "true" : "false");
-    RPI_Serial.println("}");
+void buildStatusJson() {
+    unsigned long uptime = (millis() - bootTime) / 1000;
+    sprintf(statusJsonBuf,
+        "{\"type\":\"status\",\"uptime\":%lu,\"gps_ok\":%s,\"sats\":%d,\"wifi\":%s,\"ppp\":%s}",
+        uptime,
+        gpsHasFix ? "true" : "false",
+        gps.satellites.value(),
+        wifiConnected ? "true" : "false",
+        pppActive ? "true" : "false");
 }
 
-void sendAck(const char* cmd, const char* status) {
-    RPI_Serial.print("{\"type\":\"ack\",\"cmd\":\"");
-    RPI_Serial.print(cmd);
-    RPI_Serial.print("\",\"status\":\"");
-    RPI_Serial.print(status);
-    RPI_Serial.println("\"}");
+void buildWifiJson() {
+    if (wifiConnected) {
+        sprintf(wifiJsonBuf,
+            "{\"type\":\"wifi\",\"connected\":true,\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d}",
+            WiFi.SSID().c_str(),
+            WiFi.localIP().toString().c_str(),
+            WiFi.RSSI());
+    } else {
+        sprintf(wifiJsonBuf,
+            "{\"type\":\"wifi\",\"connected\":false,\"ssid\":\"%s\"}",
+            wifiSSID.c_str());
+    }
 }
 
-void sendError(const char* msg) {
-    RPI_Serial.print("{\"type\":\"error\",\"msg\":\"");
-    RPI_Serial.print(msg);
-    RPI_Serial.println("\"}");
+// =============================================================================
+// WiFi Functions
+// =============================================================================
+
+void setupWifi() {
+    WiFi.mode(WIFI_STA);
+
+    // Auto-connect if credentials exist
+    if (wifiSSID.length() > 0) {
+        WiFi.begin(wifiSSID.c_str(), wifiPass.c_str());
+    }
 }
 
-void enterSleep(int seconds) {
-    // Disable GPS LNA to save power
-    digitalWrite(PIN_LNA_EN, LOW);
+void connectWifi() {
+    if (wifiSSID.length() > 0) {
+        WiFi.disconnect();
+        delay(100);
+        WiFi.begin(wifiSSID.c_str(), wifiPass.c_str());
+    }
+}
 
-    if (seconds > 0) {
-        // Timed deep sleep
-        esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
+void disconnectWifi() {
+    WiFi.disconnect();
+}
+
+// =============================================================================
+// SPI Slave Functions
+// =============================================================================
+
+void setupSpiSlave() {
+    // SPI slave configuration
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = PIN_SPI_MOSI,
+        .miso_io_num = PIN_SPI_MISO,
+        .sclk_io_num = PIN_SPI_SCK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = SPI_BUFFER_SIZE,
+    };
+
+    spi_slave_interface_config_t slvcfg = {
+        .spics_io_num = PIN_SPI_CS,
+        .flags = 0,
+        .queue_size = 3,
+        .mode = 0,  // SPI mode 0
+        .post_setup_cb = NULL,
+        .post_trans_cb = spiTransactionComplete,
+    };
+
+    // Initialize SPI slave
+    esp_err_t ret = spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        PPP_Serial.printf("{\"type\":\"error\",\"msg\":\"SPI init failed: %d\"}\n", ret);
+    }
+}
+
+void processSpiCommand() {
+    // Prepare transaction
+    spi_slave_transaction_t trans = {
+        .length = SPI_BUFFER_SIZE * 8,
+        .tx_buffer = spiTxBuf,
+        .rx_buffer = spiRxBuf,
+    };
+
+    // Clear buffers
+    memset(spiRxBuf, 0, SPI_BUFFER_SIZE);
+    memset(spiTxBuf, 0, SPI_BUFFER_SIZE);
+
+    // Wait for transaction (non-blocking check)
+    if (spi_slave_transmit(SPI2_HOST, &trans, 0) == ESP_OK) {
+        // Process received command
+        uint8_t cmd = spiRxBuf[0];
+
+        switch (cmd) {
+            case CMD_GET_GPS:
+                memcpy(spiTxBuf, gpsJsonBuf, strlen(gpsJsonBuf) + 1);
+                break;
+
+            case CMD_GET_STATUS:
+                memcpy(spiTxBuf, statusJsonBuf, strlen(statusJsonBuf) + 1);
+                break;
+
+            case CMD_GET_WIFI:
+                memcpy(spiTxBuf, wifiJsonBuf, strlen(wifiJsonBuf) + 1);
+                break;
+
+            case CMD_SET_SSID:
+                wifiSSID = String((char*)&spiRxBuf[1]);
+                prefs.begin("wifi", false);
+                prefs.putString("ssid", wifiSSID);
+                prefs.end();
+                strcpy((char*)spiTxBuf, "{\"ack\":\"ssid\"}");
+                break;
+
+            case CMD_SET_PASS:
+                wifiPass = String((char*)&spiRxBuf[1]);
+                prefs.begin("wifi", false);
+                prefs.putString("pass", wifiPass);
+                prefs.end();
+                strcpy((char*)spiTxBuf, "{\"ack\":\"pass\"}");
+                break;
+
+            case CMD_WIFI_CONNECT:
+                connectWifi();
+                strcpy((char*)spiTxBuf, "{\"ack\":\"connect\"}");
+                break;
+
+            case CMD_WIFI_DISCONNECT:
+                disconnectWifi();
+                strcpy((char*)spiTxBuf, "{\"ack\":\"disconnect\"}");
+                break;
+
+            case CMD_PPP_START:
+                startPpp();
+                strcpy((char*)spiTxBuf, "{\"ack\":\"ppp_start\"}");
+                break;
+
+            case CMD_PPP_STOP:
+                stopPpp();
+                strcpy((char*)spiTxBuf, "{\"ack\":\"ppp_stop\"}");
+                break;
+
+            case CMD_PING:
+                spiTxBuf[0] = 0xFE;
+                break;
+
+            case CMD_RESET:
+                ESP.restart();
+                break;
+
+            default:
+                strcpy((char*)spiTxBuf, "{\"error\":\"unknown_cmd\"}");
+                break;
+        }
+
+        // Signal data ready
+        digitalWrite(PIN_HANDSHAKE, LOW);
+    }
+}
+
+// =============================================================================
+// PPP Functions
+// =============================================================================
+
+void startPpp() {
+    if (!wifiConnected) {
+        PPP_Serial.println("{\"type\":\"error\",\"msg\":\"wifi_not_connected\"}");
+        return;
     }
 
-    // Can also wake from UART activity (RXD0)
-    // esp_sleep_enable_uart_wakeup(0);
+    if (!pppServer.init()) {
+        PPP_Serial.println("{\"type\":\"error\",\"msg\":\"ppp_init_failed\"}");
+        return;
+    }
 
-    // Enter deep sleep
-    esp_deep_sleep_start();
+    if (!pppServer.start()) {
+        PPP_Serial.println("{\"type\":\"error\",\"msg\":\"ppp_start_failed\"}");
+        return;
+    }
+
+    pppActive = true;
+}
+
+void stopPpp() {
+    pppServer.stop();
+    pppActive = false;
 }
