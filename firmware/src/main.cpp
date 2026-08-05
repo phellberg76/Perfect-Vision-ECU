@@ -34,7 +34,8 @@
 #define PIN_RPI_RX    44    // ESP32 RXD0 <- RPi TXD
 
 // GPS Serial (UART1)
-#define GPS_BAUD      9600
+// NEO-M9N default is 38400 baud
+#define GPS_BAUD      38400
 
 // RPi Serial (UART0)
 #define RPI_BAUD      115200
