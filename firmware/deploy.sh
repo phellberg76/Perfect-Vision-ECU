@@ -145,6 +145,10 @@ upload_uart() {
         error "UART device $UART_DEV not found"
     fi
 
+    # Reset serial port to known state before flashing
+    log "Resetting serial port configuration..."
+    stty -F "$UART_DEV" 115200 cs8 -cstopb -parenb raw -echo 2>/dev/null || true
+
     enter_bootloader
 
     FIRMWARE="$SCRIPT_DIR/.pio/build/esp32s3/firmware.bin"
