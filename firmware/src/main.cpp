@@ -155,29 +155,37 @@ void IRAM_ATTR spiTransactionComplete(spi_slave_transaction_t *trans) {
 void setup() {
     bootTime = millis();
 
+    // FIRST: Initialize UART for debug output
+    PPP_Serial.begin(PPP_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
+    delay(100);  // Give UART time to initialize
+
+    // Send early startup message
+    PPP_Serial.println("{\"type\":\"boot\",\"msg\":\"ESP32 starting...\"}");
+
     // Initialize handshake pin (active low = ready)
     pinMode(PIN_HANDSHAKE, OUTPUT);
     digitalWrite(PIN_HANDSHAKE, HIGH);  // Not ready initially
 
     // Initialize GPS
+    PPP_Serial.println("{\"type\":\"init\",\"step\":\"gps\"}");
     setupGps();
 
     // Load WiFi credentials
+    PPP_Serial.println("{\"type\":\"init\",\"step\":\"prefs\"}");
     prefs.begin("wifi", true);
     wifiSSID = prefs.getString("ssid", "");
     wifiPass = prefs.getString("pass", "");
     prefs.end();
 
     // Initialize WiFi
+    PPP_Serial.println("{\"type\":\"init\",\"step\":\"wifi\"}");
     setupWifi();
 
-    // Initialize SPI slave
+    // Initialize SPI slave (optional - may fail if no overlay)
+    PPP_Serial.println("{\"type\":\"init\",\"step\":\"spi\"}");
     setupSpiSlave();
 
-    // Initialize PPP serial (but don't start PPP yet)
-    PPP_Serial.begin(PPP_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
-
-    // Send startup message on PPP serial (before PPP mode)
+    // Send startup complete message
     PPP_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"2.0.0\",\"mode\":\"unified\"}");
 
     // Build initial JSON buffers
@@ -195,6 +203,19 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
+
+    // Debug heartbeat every 5 seconds (when not in PPP mode)
+    static unsigned long lastDebugMsg = 0;
+    if (!pppActive && (now - lastDebugMsg >= 5000)) {
+        lastDebugMsg = now;
+        PPP_Serial.print("{\"type\":\"heartbeat\",\"uptime\":");
+        PPP_Serial.print(now / 1000);
+        PPP_Serial.print(",\"gps_fix\":");
+        PPP_Serial.print(gpsHasFix ? "true" : "false");
+        PPP_Serial.print(",\"wifi\":");
+        PPP_Serial.print(wifiConnected ? "true" : "false");
+        PPP_Serial.println("}");
+    }
 
     // Process GPS data
     processGps();
