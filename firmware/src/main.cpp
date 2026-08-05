@@ -91,6 +91,21 @@ void setup() {
 }
 
 void loop() {
+    // Debug heartbeat every 2 seconds
+    static unsigned long lastDebug = 0;
+    if (millis() - lastDebug >= 2000) {
+        lastDebug = millis();
+        RPI_Serial.print("{\"debug\":\"heartbeat\",\"uptime\":");
+        RPI_Serial.print(millis() / 1000);
+        RPI_Serial.print(",\"gps_chars\":");
+        RPI_Serial.print(gps.charsProcessed());
+        RPI_Serial.print(",\"gps_sentences\":");
+        RPI_Serial.print(gps.sentencesWithFix());
+        RPI_Serial.print(",\"gps_failed\":");
+        RPI_Serial.print(gps.failedChecksum());
+        RPI_Serial.println("}");
+    }
+
     // Process incoming GPS data
     while (GPS_Serial.available()) {
         char c = GPS_Serial.read();
