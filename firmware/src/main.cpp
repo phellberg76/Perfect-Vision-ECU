@@ -3,13 +3,13 @@
  *
  * Purpose:
  *   - Read NMEA strings from NEO-M9N GPS module
- *   - Relay position data to the Raspberry Pi
+ *   - Relay position data to the Raspberry Pi via UART0
  *   - Keep SPI pins in high-impedance to not interfere with RPi <-> MCP2515
  *
  * Hardware:
  *   - ESP32-S3-MINI-1 module
- *   - NEO-M9N GPS module (u-blox)
- *   - USB-C connection to Raspberry Pi
+ *   - NEO-M9N GPS module (u-blox) on UART1 (TXD1/RXD1)
+ *   - RPi connected via UART0 (TXD0/RXD0 = GPIO43/44)
  *
  * IMPORTANT: The SPI bus is shared with the Raspberry Pi and MCP2515 CAN
  * controllers. This firmware keeps SPI pins as inputs to avoid interference.
@@ -18,22 +18,26 @@
 #include <Arduino.h>
 #include <TinyGPSPlus.h>
 
-// Pin Definitions - SPI (directly expose as inputs - shared bus with RPi)
+// Pin Definitions - SPI (set as inputs - shared bus with RPi)
 #define PIN_SPI_MOSI  11
 #define PIN_SPI_MISO  13
 #define PIN_SPI_SCK   12
-#define PIN_SPI_CS    4   // GPIO4_CS from schematic
+#define PIN_SPI_CS    4
 
 // Pin Definitions - GPS (UART1)
 #define PIN_GPS_TX    17    // ESP32 TX -> GPS RX
 #define PIN_GPS_RX    18    // ESP32 RX <- GPS TX
-#define PIN_LNA_EN    8     // GPS LNA Enable
+#define PIN_LNA_EN    8     // GPS LNA Enable (active high)
 
-// Pin Definitions - Status
-#define PIN_LED       4
+// Pin Definitions - RPi UART0
+#define PIN_RPI_TX    43    // ESP32 TXD0 -> RPi RXD
+#define PIN_RPI_RX    44    // ESP32 RXD0 <- RPi TXD
 
-// GPS Serial
+// GPS Serial (UART1)
 #define GPS_BAUD      9600
+
+// RPi Serial (UART0)
+#define RPI_BAUD      115200
 
 // Output modes
 enum OutputMode {
@@ -47,7 +51,8 @@ OutputMode outputMode = OUTPUT_NMEA_FILTERED;
 
 // Objects
 TinyGPSPlus gps;
-HardwareSerial GPS_Serial(1);
+HardwareSerial GPS_Serial(1);   // UART1 for GPS
+HardwareSerial RPI_Serial(0);   // UART0 for RPi
 
 // Buffers
 char nmeaBuffer[256];
@@ -71,23 +76,18 @@ void setup() {
     pinMode(PIN_SPI_SCK, INPUT);
     pinMode(PIN_SPI_CS, INPUT);
 
-    // Initialize USB serial for RPi communication
-    Serial.begin(115200);
-    while (!Serial && millis() < 3000);
+    // Initialize UART0 for RPi communication
+    RPI_Serial.begin(RPI_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
 
-    // Initialize LED (use different pin if PIN_LED conflicts with SPI_CS)
-    // pinMode(PIN_LED, OUTPUT);
-    // digitalWrite(PIN_LED, LOW);
-
-    // Initialize GPS LNA
+    // Initialize GPS LNA - must be HIGH to enable the antenna LNA
     pinMode(PIN_LNA_EN, OUTPUT);
     digitalWrite(PIN_LNA_EN, HIGH);
 
-    // Initialize GPS serial
+    // Initialize GPS serial (UART1)
     GPS_Serial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
 
-    // Startup message
-    Serial.println("{\"event\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"gps\":\"NEO-M9N\",\"spi\":\"high-z\"}");
+    // Startup message to RPi
+    RPI_Serial.println("{\"event\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"gps\":\"NEO-M9N\",\"spi\":\"high-z\"}");
 }
 
 void loop() {
@@ -123,7 +123,7 @@ void processNMEA(const char* sentence) {
 
     switch (outputMode) {
         case OUTPUT_NMEA_RAW:
-            Serial.print(sentence);
+            RPI_Serial.print(sentence);
             break;
 
         case OUTPUT_NMEA_FILTERED:
@@ -131,7 +131,7 @@ void processNMEA(const char* sentence) {
             if (strstr(sentence, "$GNGGA") || strstr(sentence, "$GPGGA") ||
                 strstr(sentence, "$GNRMC") || strstr(sentence, "$GPRMC") ||
                 strstr(sentence, "$GNGSA") || strstr(sentence, "$GPGSA")) {
-                Serial.print(sentence);
+                RPI_Serial.print(sentence);
             }
             break;
 
@@ -145,64 +145,66 @@ void processNMEA(const char* sentence) {
 }
 
 void outputJSON() {
-    Serial.print("{\"lat\":");
-    Serial.print(gps.location.lat(), 8);
-    Serial.print(",\"lng\":");
-    Serial.print(gps.location.lng(), 8);
+    RPI_Serial.print("{\"lat\":");
+    RPI_Serial.print(gps.location.lat(), 8);
+    RPI_Serial.print(",\"lng\":");
+    RPI_Serial.print(gps.location.lng(), 8);
 
     if (gps.altitude.isValid()) {
-        Serial.print(",\"alt\":");
-        Serial.print(gps.altitude.meters(), 2);
+        RPI_Serial.print(",\"alt\":");
+        RPI_Serial.print(gps.altitude.meters(), 2);
     }
 
     if (gps.speed.isValid()) {
-        Serial.print(",\"speed\":");
-        Serial.print(gps.speed.kmph(), 2);
+        RPI_Serial.print(",\"speed\":");
+        RPI_Serial.print(gps.speed.kmph(), 2);
     }
 
     if (gps.course.isValid()) {
-        Serial.print(",\"course\":");
-        Serial.print(gps.course.deg(), 2);
+        RPI_Serial.print(",\"course\":");
+        RPI_Serial.print(gps.course.deg(), 2);
     }
 
-    Serial.print(",\"sats\":");
-    Serial.print(gps.satellites.value());
+    RPI_Serial.print(",\"sats\":");
+    RPI_Serial.print(gps.satellites.value());
 
     if (gps.hdop.isValid()) {
-        Serial.print(",\"hdop\":");
-        Serial.print(gps.hdop.hdop(), 2);
+        RPI_Serial.print(",\"hdop\":");
+        RPI_Serial.print(gps.hdop.hdop(), 2);
     }
 
     if (gps.date.isValid() && gps.time.isValid()) {
-        Serial.print(",\"time\":\"");
-        Serial.printf("%04d-%02d-%02dT%02d:%02d:%02d.%02dZ",
+        RPI_Serial.print(",\"time\":\"");
+        char timebuf[32];
+        snprintf(timebuf, sizeof(timebuf), "%04d-%02d-%02dT%02d:%02d:%02d.%02dZ",
             gps.date.year(), gps.date.month(), gps.date.day(),
             gps.time.hour(), gps.time.minute(), gps.time.second(),
             gps.time.centisecond());
-        Serial.print("\"");
+        RPI_Serial.print(timebuf);
+        RPI_Serial.print("\"");
     }
 
-    Serial.println("}");
+    RPI_Serial.println("}");
     lastFixTime = millis();
 }
 
 void processCommands() {
-    if (!Serial.available()) return;
+    if (!RPI_Serial.available()) return;
 
-    String cmd = Serial.readStringUntil('\n');
+    String cmd = RPI_Serial.readStringUntil('\n');
     cmd.trim();
 
     if (cmd == "RAW") {
         outputMode = OUTPUT_NMEA_RAW;
-        Serial.println("{\"mode\":\"raw\"}");
+        RPI_Serial.println("{\"mode\":\"raw\"}");
     }
     else if (cmd == "FILTERED") {
         outputMode = OUTPUT_NMEA_FILTERED;
-        Serial.println("{\"mode\":\"filtered\"}");
+        RPI_Serial.println("{\"mode\":\"filtered\"}");
     }
     else if (cmd == "JSON") {
         outputMode = OUTPUT_JSON;
-        Serial.println("{\"mode\":\"json\"}");
+        RPI_Serial.println("{\"mode\":\"json\"}");
     }
     else if (cmd == "STATUS") {
         printStatus();
@@ -218,18 +220,18 @@ void processCommands() {
 }
 
 void printStatus() {
-    Serial.print("{\"status\":{");
-    Serial.print("\"uptime\":");
-    Serial.print(millis() / 1000);
-    Serial.print(",\"messages\":");
-    Serial.print(messagesReceived);
-    Serial.print(",\"fix\":");
-    Serial.print(gps.location.isValid() ? "true" : "false");
-    Serial.print(",\"sats\":");
-    Serial.print(gps.satellites.value());
-    Serial.print(",\"mode\":\"");
-    Serial.print(outputMode == OUTPUT_NMEA_RAW ? "raw" :
+    RPI_Serial.print("{\"status\":{");
+    RPI_Serial.print("\"uptime\":");
+    RPI_Serial.print(millis() / 1000);
+    RPI_Serial.print(",\"messages\":");
+    RPI_Serial.print(messagesReceived);
+    RPI_Serial.print(",\"fix\":");
+    RPI_Serial.print(gps.location.isValid() ? "true" : "false");
+    RPI_Serial.print(",\"sats\":");
+    RPI_Serial.print(gps.satellites.value());
+    RPI_Serial.print(",\"mode\":\"");
+    RPI_Serial.print(outputMode == OUTPUT_NMEA_RAW ? "raw" :
                  outputMode == OUTPUT_NMEA_FILTERED ? "filtered" : "json");
-    Serial.print("\",\"spi\":\"high-z\"");
-    Serial.println("}}");
+    RPI_Serial.print("\",\"spi\":\"high-z\"");
+    RPI_Serial.println("}}");
 }
