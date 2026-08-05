@@ -1,0 +1,69 @@
+/*
+ * Device Tree Overlay for ESP-Hosted SPI on RPi GPS Hat v4
+ *
+ * Pin Mapping:
+ *   RPi GPIO4  -> ESP32 IO10 (CS)
+ *   RPi GPIO5  -> ESP32 IO3  (Handshake)
+ *   RPi GPIO6  -> ESP32 IO4  (Data Ready)
+ *   RPi GPIO17 -> ESP32 EN   (Reset)
+ *   RPi GPIO10 -> ESP32 IO11 (MOSI)
+ *   RPi GPIO9  -> ESP32 IO13 (MISO)
+ *   RPi GPIO11 -> ESP32 IO12 (SCLK)
+ *
+ * Compile with:
+ *   dtc -@ -I dts -O dtb -o esp-hosted-spi.dtbo esp-hosted-spi-overlay.dts
+ *
+ * Install:
+ *   sudo cp esp-hosted-spi.dtbo /boot/firmware/overlays/
+ *
+ * Enable in /boot/firmware/config.txt:
+ *   dtoverlay=esp-hosted-spi
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711";
+
+    fragment@0 {
+        target = <&spi0>;
+        __overlay__ {
+            status = "okay";
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            esp32: esp32@0 {
+                compatible = "espressif,esp-hosted-spi";
+                reg = <0>;  /* CE0 - but we use GPIO4 as CS */
+                spi-max-frequency = <10000000>;
+
+                /* GPIO configuration */
+                handshake-gpios = <&gpio 5 0>;    /* GPIO5 = Handshake */
+                dataready-gpios = <&gpio 6 0>;    /* GPIO6 = Data Ready */
+                reset-gpios = <&gpio 17 0>;       /* GPIO17 = Reset/EN */
+
+                status = "okay";
+            };
+        };
+    };
+
+    /* Use GPIO4 as chip select instead of CE0/CE1 */
+    fragment@1 {
+        target = <&spi0_cs_pins>;
+        __overlay__ {
+            brcm,pins = <4>;  /* GPIO4 as CS */
+        };
+    };
+
+    fragment@2 {
+        target = <&gpio>;
+        __overlay__ {
+            esp_pins: esp_pins {
+                brcm,pins = <5 6 17>;
+                brcm,function = <0 0 1>;  /* 5,6 = input, 17 = output */
+                brcm,pull = <2 2 0>;      /* 5,6 = pull-up, 17 = none */
+            };
+        };
+    };
+};
