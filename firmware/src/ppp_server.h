@@ -25,6 +25,7 @@
 typedef enum {
     PPP_STATE_IDLE,
     PPP_STATE_STARTING,
+    PPP_STATE_LCP_OPEN,
     PPP_STATE_CONNECTED,
     PPP_STATE_ERROR
 } ppp_state_t;

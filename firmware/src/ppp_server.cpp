@@ -307,10 +307,17 @@ void PPPServer::handleLcp(uint8_t* data, size_t len) {
             // Peer is requesting configuration - ACK everything for simplicity
             Serial.println("[PPP] LCP: Received Config-Req, sending Config-Ack");
             sendLcpConfigAck(id, data + 4, length - 4);
+            // Also send our own Config-Req (in case initial one was missed)
+            if (_state == PPP_STATE_STARTING) {
+                Serial.println("[PPP] LCP: Sending our Config-Req");
+                sendLcpConfigReq();
+            }
             break;
 
         case CONF_ACK:
             // Our config was accepted - move to IPCP
+            Serial.println("[PPP] LCP: Received Config-Ack, moving to IPCP");
+            _state = PPP_STATE_LCP_OPEN;
             sendIpcpConfigReq();
             break;
 
