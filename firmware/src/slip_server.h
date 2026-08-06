@@ -55,6 +55,9 @@ public:
     uint32_t getPacketsSent() const { return _packetsSent; }
     uint32_t getPacketsRecv() const { return _packetsRecv; }
 
+    // Send packet (public for callback access)
+    void sendPacket(uint8_t* data, size_t len);
+
 private:
     HardwareSerial& _serial;
     SlipState _state;
@@ -69,7 +72,6 @@ private:
     uint32_t _packetsRecv;
 
     void processReceivedPacket(uint8_t* data, size_t len);
-    void sendPacket(uint8_t* data, size_t len);
     void forwardToWifi(uint8_t* ipPacket, size_t len);
 };
 
