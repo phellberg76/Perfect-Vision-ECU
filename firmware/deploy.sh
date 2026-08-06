@@ -44,6 +44,33 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# Clean up PPP and serial port before flashing
+cleanup_serial() {
+    log "Cleaning up serial port..."
+
+    # Kill any pppd processes using our serial port
+    if pgrep -x pppd > /dev/null; then
+        log "Stopping pppd..."
+        sudo killall pppd 2>/dev/null || true
+        sleep 1
+    fi
+
+    # Kill any process holding the serial port
+    if command -v fuser &> /dev/null; then
+        sudo fuser -k "$UART_DEV" 2>/dev/null || true
+    fi
+
+    # Reset serial port to known state
+    if [ -e "$UART_DEV" ]; then
+        stty -F "$UART_DEV" 115200 cs8 -cstopb -parenb raw -echo 2>/dev/null || true
+    fi
+
+    # Reset ESP32 to get it out of PPP mode
+    log "Resetting ESP32..."
+    reset_esp32 2>/dev/null || true
+    sleep 0.5
+}
+
 # Detect USB serial device
 find_usb_device() {
     local dev=$(ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | head -1)
@@ -141,13 +168,12 @@ upload_uart() {
     log "Uploading to ESP32 via UART ($UART_DEV)..."
     cd "$SCRIPT_DIR"
 
+    # Clean up any PPP session and reset serial port
+    cleanup_serial
+
     if [ ! -e "$UART_DEV" ]; then
         error "UART device $UART_DEV not found"
     fi
-
-    # Reset serial port to known state before flashing
-    log "Resetting serial port configuration..."
-    stty -F "$UART_DEV" 115200 cs8 -cstopb -parenb raw -echo 2>/dev/null || true
 
     enter_bootloader
 
