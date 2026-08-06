@@ -78,6 +78,7 @@ private:
     void handleLcp(uint8_t* data, size_t len);
     void handleIpcp(uint8_t* data, size_t len);
     void handleIp(uint8_t* data, size_t len);
+    void handleIcmp(uint8_t* data, size_t len);
 
     // Send protocol messages
     void sendLcpConfigReq();

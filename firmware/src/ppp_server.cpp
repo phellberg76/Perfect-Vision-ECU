@@ -447,29 +447,118 @@ void PPPServer::handleIpcp(uint8_t* data, size_t len) {
 void PPPServer::handleIp(uint8_t* data, size_t len) {
     if (len < 20) return;  // Minimum IP header
 
-    // Forward IP packet to WiFi interface via lwIP
-    // This is where the actual routing/NAT happens
+    // Parse IP header
+    uint8_t protocol = data[9];
+    uint32_t dstIp = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
+
+    Serial.printf("[PPP] IP packet: proto=%d dst=%d.%d.%d.%d len=%d\n",
+        protocol, data[16], data[17], data[18], data[19], len);
+
+    // Check if destination is us (10.0.0.1 = 0x0A000001)
+    if (dstIp == 0x0A000001) {
+        // Packet is for us
+        if (protocol == 1) {  // ICMP
+            handleIcmp(data, len);
+        } else {
+            Serial.printf("[PPP] Ignoring protocol %d to us\n", protocol);
+        }
+        return;
+    }
+
+    // Forward to WiFi interface
+    Serial.println("[PPP] Forwarding to WiFi...");
 
     // Create pbuf for the packet
     struct pbuf* p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
-    if (p == nullptr) return;
+    if (p == nullptr) {
+        Serial.println("[PPP] Failed to allocate pbuf");
+        return;
+    }
 
     memcpy(p->payload, data, len);
 
     // Get the WiFi netif
     struct netif* wifi_netif = netif_default;
     if (wifi_netif == nullptr) {
+        Serial.println("[PPP] No default netif");
         pbuf_free(p);
         return;
     }
 
     // Forward the packet
-    // With NAPT enabled, this will translate the source address
 #if LWIP_IPV4
     ip4_input(p, wifi_netif);
 #else
     pbuf_free(p);
 #endif
+}
+
+void PPPServer::handleIcmp(uint8_t* data, size_t len) {
+    // IP header length
+    uint8_t ihl = (data[0] & 0x0F) * 4;
+    if (len < ihl + 8) return;
+
+    uint8_t* icmp = data + ihl;
+    uint8_t type = icmp[0];
+    uint8_t code = icmp[1];
+
+    Serial.printf("[PPP] ICMP: type=%d code=%d\n", type, code);
+
+    if (type == 8 && code == 0) {
+        // Echo Request - send Echo Reply
+        Serial.println("[PPP] Responding to ping");
+
+        // Swap source and destination IP
+        uint8_t tmpIp[4];
+        memcpy(tmpIp, data + 12, 4);       // Save src
+        memcpy(data + 12, data + 16, 4);   // dst -> src
+        memcpy(data + 16, tmpIp, 4);       // saved src -> dst
+
+        // Change ICMP type to Echo Reply (0)
+        icmp[0] = 0;
+
+        // Recalculate ICMP checksum
+        icmp[2] = 0;
+        icmp[3] = 0;
+        uint32_t sum = 0;
+        size_t icmpLen = len - ihl;
+        for (size_t i = 0; i < icmpLen; i += 2) {
+            if (i + 1 < icmpLen) {
+                sum += (icmp[i] << 8) | icmp[i + 1];
+            } else {
+                sum += icmp[i] << 8;
+            }
+        }
+        while (sum >> 16) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        uint16_t checksum = ~sum;
+        icmp[2] = (checksum >> 8) & 0xFF;
+        icmp[3] = checksum & 0xFF;
+
+        // Recalculate IP checksum
+        data[10] = 0;
+        data[11] = 0;
+        sum = 0;
+        for (size_t i = 0; i < ihl; i += 2) {
+            sum += (data[i] << 8) | data[i + 1];
+        }
+        while (sum >> 16) {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        checksum = ~sum;
+        data[10] = (checksum >> 8) & 0xFF;
+        data[11] = checksum & 0xFF;
+
+        // Send as PPP IP packet
+        uint8_t frame[1600];
+        frame[0] = 0x00;  // IP protocol high byte
+        frame[1] = 0x21;  // IP protocol low byte
+        memcpy(frame + 2, data, len);
+        sendPppFrame(frame, len + 2);
+
+        Serial.println("[PPP] Ping reply sent");
+    }
 }
 
 void PPPServer::sendLcpConfigReq() {
