@@ -508,7 +508,6 @@ void PPPServer::handleIp(uint8_t* data, size_t len) {
 
     // For ICMP, also need to track the request to route reply back
     // Store mapping: WiFi IP + ICMP id -> original source IP
-    uint8_t protocol = data[9];
     if (protocol == 1) {  // ICMP
         // ICMP identifier is at offset ihl+4 (2 bytes)
         uint16_t icmpId = (data[ihl + 4] << 8) | data[ihl + 5];
@@ -538,10 +537,10 @@ void PPPServer::handleIp(uint8_t* data, size_t len) {
     IP4_ADDR(&dest, data[16], data[17], data[18], data[19]);
 
     // Use gateway if destination is not on local network
-    ip4_addr_t* gw = netif_ip4_gw(wifi_netif);
+    const ip4_addr_t* gw = netif_ip4_gw(wifi_netif);
     if (gw && gw->addr != 0) {
         Serial.printf("[PPP] Sending via gateway %s\n", ip4addr_ntoa(gw));
-        wifi_netif->output(wifi_netif, p, gw);
+        wifi_netif->output(wifi_netif, p, (const ip4_addr_t*)gw);
     } else {
         wifi_netif->output(wifi_netif, p, &dest);
     }
