@@ -40,6 +40,12 @@
 #include "driver/spi_slave.h"
 #include "esp_wifi.h"
 #include "ppp_server.h"
+#include "slip_server.h"
+
+// Network sharing mode
+#define NET_MODE_NONE   0
+#define NET_MODE_PPP    1
+#define NET_MODE_SLIP   2
 
 // =============================================================================
 // Pin Definitions
@@ -102,6 +108,10 @@ Preferences prefs;
 // PPP Server
 PPPServer pppServer(PPP_Serial);
 
+// SLIP Server (simpler alternative to PPP)
+SLIPServer slipServer(PPP_Serial);
+int netMode = NET_MODE_NONE;
+
 // SPI slave buffers
 WORD_ALIGNED_ATTR uint8_t spiRxBuf[SPI_BUFFER_SIZE];
 WORD_ALIGNED_ATTR uint8_t spiTxBuf[SPI_BUFFER_SIZE];
@@ -140,6 +150,8 @@ void connectWifi();
 void disconnectWifi();
 void startPpp();
 void stopPpp();
+void startSlip();
+void stopSlip();
 
 // =============================================================================
 // SPI Slave Callback
@@ -158,11 +170,19 @@ void IRAM_ATTR spiTransactionComplete(spi_slave_transaction_t *trans) {
 void setup() {
     bootTime = millis();
 
-    // FIRST: Initialize UART for debug output
+    // Initialize USB Serial for debug output (separate from UART0)
+    Serial.begin(115200);
+    delay(100);
+    Serial.println("\n\n=== ESP32-S3 GPS Hat v4 ===");
+    Serial.println("USB Serial: Debug output");
+    Serial.println("UART0: PPP/Commands to RPi");
+    Serial.println("");
+
+    // Initialize UART0 for RPi communication
     PPP_Serial.begin(PPP_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
     delay(100);  // Give UART time to initialize
 
-    // Send early startup message
+    // Send early startup message to RPi
     PPP_Serial.println("{\"type\":\"boot\",\"msg\":\"ESP32 starting...\"}");
 
     // Initialize status LED (off during init)
@@ -174,25 +194,33 @@ void setup() {
     digitalWrite(PIN_HANDSHAKE, HIGH);  // Not ready initially
 
     // Initialize GPS
+    Serial.println("[INIT] GPS...");
     PPP_Serial.println("{\"type\":\"init\",\"step\":\"gps\"}");
     setupGps();
+    Serial.println("[INIT] GPS OK");
 
     // Load WiFi credentials
+    Serial.println("[INIT] Loading WiFi credentials...");
     PPP_Serial.println("{\"type\":\"init\",\"step\":\"prefs\"}");
     prefs.begin("wifi", true);
     wifiSSID = prefs.getString("ssid", "");
     wifiPass = prefs.getString("pass", "");
     prefs.end();
+    Serial.printf("[INIT] SSID: %s\n", wifiSSID.c_str());
 
     // Initialize WiFi
+    Serial.println("[INIT] WiFi...");
     PPP_Serial.println("{\"type\":\"init\",\"step\":\"wifi\"}");
     setupWifi();
+    Serial.println("[INIT] WiFi OK");
 
     // Initialize SPI slave (optional - may fail if no overlay)
+    Serial.println("[INIT] SPI slave...");
     PPP_Serial.println("{\"type\":\"init\",\"step\":\"spi\"}");
     setupSpiSlave();
 
     // Send startup complete message
+    Serial.println("[INIT] Complete!");
     PPP_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"2.0.0\",\"mode\":\"unified\"}");
 
     // Build initial JSON buffers
@@ -248,18 +276,30 @@ void loop() {
     wifiConnected = (WiFi.status() == WL_CONNECTED);
 
     // Handle UART0 based on mode
-    if (pppActive) {
+    if (netMode == NET_MODE_PPP) {
         // Process PPP frames
         pppServer.process();
 
         // Update PPP state
         if (!pppServer.isConnected() && pppServer.getState() == PPP_STATE_ERROR) {
+            netMode = NET_MODE_NONE;
+            pppActive = false;
+        }
+    } else if (netMode == NET_MODE_SLIP) {
+        // Process SLIP frames
+        slipServer.process();
+
+        // Check if still active
+        if (!slipServer.isActive()) {
+            netMode = NET_MODE_NONE;
             pppActive = false;
         }
     } else if (PPP_Serial.available()) {
         // Command mode - handle text commands
         String cmd = PPP_Serial.readStringUntil('\n');
         cmd.trim();
+
+        Serial.printf("[CMD] Received: %s\n", cmd.c_str());
 
         // Simple commands before PPP mode
         if (cmd == "STATUS") {
@@ -269,12 +309,20 @@ void loop() {
         } else if (cmd == "WIFI") {
             PPP_Serial.println(wifiJsonBuf);
         } else if (cmd == "PPP_START") {
+            Serial.println("[CMD] Starting PPP mode...");
             PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"ppp\",\"status\":\"starting\"}");
             delay(100);
             startPpp();
         } else if (cmd == "PPP_STOP") {
             stopPpp();
             PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"ppp\",\"status\":\"stopped\"}");
+        } else if (cmd == "SLIP_START") {
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"slip\",\"status\":\"starting\"}");
+            delay(100);
+            startSlip();
+        } else if (cmd == "SLIP_STOP") {
+            stopSlip();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"slip\",\"status\":\"stopped\"}");
         } else if (cmd == "RESET") {
             PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"reset\"}");
             delay(100);
@@ -550,10 +598,33 @@ void startPpp() {
         return;
     }
 
+    netMode = NET_MODE_PPP;
     pppActive = true;
 }
 
 void stopPpp() {
     pppServer.stop();
     pppActive = false;
+    netMode = NET_MODE_NONE;
+}
+
+void startSlip() {
+    if (!wifiConnected) {
+        PPP_Serial.println("{\"type\":\"error\",\"msg\":\"wifi_not_connected\"}");
+        return;
+    }
+
+    if (!slipServer.start()) {
+        PPP_Serial.println("{\"type\":\"error\",\"msg\":\"slip_start_failed\"}");
+        return;
+    }
+
+    netMode = NET_MODE_SLIP;
+    pppActive = true;  // Reuse flag to disable heartbeat
+}
+
+void stopSlip() {
+    slipServer.stop();
+    pppActive = false;
+    netMode = NET_MODE_NONE;
 }

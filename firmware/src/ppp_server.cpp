@@ -106,6 +106,7 @@ PPPServer::PPPServer(HardwareSerial& serial)
     , _bytesSent(0)
     , _bytesRecv(0)
     , _rxLen(0)
+    , _escapeNext(false)
 {
 }
 
@@ -121,19 +122,25 @@ bool PPPServer::init() {
 
 bool PPPServer::start() {
     if (_state != PPP_STATE_IDLE) {
+        Serial.println("[PPP] Already started");
         return false;
     }
 
+    Serial.println("[PPP] Starting PPP server...");
+
     _state = PPP_STATE_STARTING;
     _rxLen = 0;
+    _escapeNext = false;
 
     // Enable NAPT for WiFi interface
     // This allows packets from PPP to be NAT'd to WiFi
 #if IP_NAPT
     ip_napt_enable(WiFi.localIP(), 1);
+    Serial.println("[PPP] NAPT enabled");
 #endif
 
     // Send initial LCP Configure-Request
+    Serial.println("[PPP] Sending initial LCP Config-Req");
     sendLcpConfigReq();
 
     return true;
@@ -162,30 +169,35 @@ void PPPServer::process() {
     while (_serial.available()) {
         uint8_t b = _serial.read();
 
-        if (b == PPP_FLAG) {
+        if (_escapeNext) {
+            // Previous byte was escape
+            _escapeNext = false;
+            b ^= PPP_TRANS;
+            if (_rxLen < sizeof(_rxBuffer)) {
+                _rxBuffer[_rxLen++] = b;
+            }
+        } else if (b == PPP_FLAG) {
             if (_rxLen > 0) {
                 // End of frame
                 size_t frameLen = _rxLen;
                 _rxLen = 0;
 
-                // Verify FCS
+                // Verify FCS - good FCS over data+fcs should equal 0xF0B8
                 if (frameLen >= 4) {
                     uint16_t fcs = pppfcs16(0xFFFF, _rxBuffer, frameLen);
-                    if (fcs == 0xF0B8) {  // Good FCS
+                    if (fcs == 0xF0B8) {
                         // Remove FCS from payload
                         processFrame(_rxBuffer, frameLen - 2);
+                    } else {
+                        // Debug: bad FCS
+                        Serial.printf("[PPP] Bad FCS: 0x%04X (len=%d)\n", fcs, frameLen);
                     }
                 }
             }
+            // Either way, this is start of new frame
         } else if (b == PPP_ESCAPE) {
-            // Wait for next byte
-            while (!_serial.available()) {
-                delay(1);
-            }
-            b = _serial.read() ^ PPP_TRANS;
-            if (_rxLen < sizeof(_rxBuffer)) {
-                _rxBuffer[_rxLen++] = b;
-            }
+            // Next byte is escaped
+            _escapeNext = true;
         } else {
             if (_rxLen < sizeof(_rxBuffer)) {
                 _rxBuffer[_rxLen++] = b;
@@ -195,45 +207,39 @@ void PPPServer::process() {
 }
 
 void PPPServer::sendPppFrame(uint8_t* data, size_t len) {
-    // Add FCS
-    uint16_t fcs = pppfcs16(0xFFFF, data, len);
+    // Build complete frame with Address and Control for FCS calculation
+    // PPP FCS must be calculated over: Address + Control + Protocol + Information
+    uint8_t frameWithAC[258];  // Max frame size
+    frameWithAC[0] = 0xFF;     // All-stations address
+    frameWithAC[1] = 0x03;     // UI control
+    memcpy(frameWithAC + 2, data, len);
+    size_t totalLen = len + 2;
+
+    // Calculate FCS over Address + Control + data
+    uint16_t fcs = pppfcs16(0xFFFF, frameWithAC, totalLen);
     fcs ^= 0xFFFF;
 
     // Send flag
     _serial.write(PPP_FLAG);
 
-    // Send address and control (can be omitted with ACFC)
-    _serial.write(0xFF);  // All-stations
-    _serial.write(0x03);  // UI
-
-    // Send data with escaping
-    for (size_t i = 0; i < len; i++) {
-        uint8_t b = data[i];
+    // Helper to send byte with escaping
+    auto sendEscaped = [this](uint8_t b) {
         if (b < 0x20 || b == PPP_FLAG || b == PPP_ESCAPE) {
             _serial.write(PPP_ESCAPE);
             _serial.write(b ^ PPP_TRANS);
         } else {
             _serial.write(b);
         }
+    };
+
+    // Send Address, Control, and data with escaping
+    for (size_t i = 0; i < totalLen; i++) {
+        sendEscaped(frameWithAC[i]);
     }
 
-    // Send FCS with escaping
-    uint8_t fcsLo = fcs & 0xFF;
-    uint8_t fcsHi = (fcs >> 8) & 0xFF;
-
-    if (fcsLo < 0x20 || fcsLo == PPP_FLAG || fcsLo == PPP_ESCAPE) {
-        _serial.write(PPP_ESCAPE);
-        _serial.write(fcsLo ^ PPP_TRANS);
-    } else {
-        _serial.write(fcsLo);
-    }
-
-    if (fcsHi < 0x20 || fcsHi == PPP_FLAG || fcsHi == PPP_ESCAPE) {
-        _serial.write(PPP_ESCAPE);
-        _serial.write(fcsHi ^ PPP_TRANS);
-    } else {
-        _serial.write(fcsHi);
-    }
+    // Send FCS (little-endian) with escaping
+    sendEscaped(fcs & 0xFF);
+    sendEscaped((fcs >> 8) & 0xFF);
 
     // Send flag
     _serial.write(PPP_FLAG);
@@ -245,6 +251,8 @@ void PPPServer::processFrame(uint8_t* data, size_t len) {
     if (len < 4) return;  // Minimum: addr + ctrl + protocol(2)
 
     _bytesRecv += len;
+
+    Serial.printf("[PPP] Frame received: %d bytes\n", len);
 
     // Skip address (0xFF) and control (0x03) if present
     size_t offset = 0;
@@ -267,6 +275,8 @@ void PPPServer::processFrame(uint8_t* data, size_t len) {
     uint8_t* payload = data + offset;
     size_t payloadLen = len - offset;
 
+    Serial.printf("[PPP] Protocol: 0x%04X\n", protocol);
+
     switch (protocol) {
         case PPP_LCP:
             handleLcp(payload, payloadLen);
@@ -276,6 +286,9 @@ void PPPServer::processFrame(uint8_t* data, size_t len) {
             break;
         case PPP_IP:
             handleIp(payload, payloadLen);
+            break;
+        default:
+            Serial.printf("[PPP] Unknown protocol: 0x%04X\n", protocol);
             break;
     }
 }
@@ -287,9 +300,12 @@ void PPPServer::handleLcp(uint8_t* data, size_t len) {
     uint8_t id = data[1];
     uint16_t length = (data[2] << 8) | data[3];
 
+    Serial.printf("[PPP] LCP: code=%d id=%d len=%d\n", code, id, length);
+
     switch (code) {
         case CONF_REQ:
             // Peer is requesting configuration - ACK everything for simplicity
+            Serial.println("[PPP] LCP: Received Config-Req, sending Config-Ack");
             sendLcpConfigAck(id, data + 4, length - 4);
             break;
 

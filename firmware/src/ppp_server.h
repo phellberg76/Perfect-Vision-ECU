@@ -66,6 +66,7 @@ private:
     // LCP/IPCP negotiation state
     uint8_t _rxBuffer[1500];
     size_t _rxLen;
+    bool _escapeNext;
 
     // Frame handling
     void sendPppFrame(uint8_t* data, size_t len);
