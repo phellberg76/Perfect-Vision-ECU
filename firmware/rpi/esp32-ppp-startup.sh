@@ -25,20 +25,25 @@ log() {
 
 send_cmd() {
     echo "$1" > "$SERIAL_PORT"
-    sleep 0.3
+    sleep 0.5
 }
 
 read_response() {
-    timeout 2 cat "$SERIAL_PORT" 2>/dev/null || true
+    # Read available data with short timeout
+    local response=""
+    response=$(timeout 1 head -c 1000 < "$SERIAL_PORT" 2>/dev/null) || true
+    echo "$response"
 }
 
 wait_for_esp32() {
     log "Waiting for ESP32 to boot..."
     for i in {1..30}; do
-        send_cmd "STATUS"
-        response=$(read_response)
-        if echo "$response" | grep -q '"type":"status"'; then
+        # Read any available data (heartbeats come every 5 seconds)
+        response=$(timeout 2 head -c 500 < "$SERIAL_PORT" 2>/dev/null) || true
+        # Check for any valid JSON response (heartbeat, status, etc.)
+        if echo "$response" | grep -qE '"type":"(heartbeat|status|startup)"'; then
             log "ESP32 is responding"
+            log "Response: $(echo "$response" | head -1)"
             return 0
         fi
         sleep 1
@@ -63,20 +68,29 @@ configure_wifi() {
     send_cmd "WIFI_PASS $ESP32_WIFI_PASS"
     send_cmd "WIFI_CONNECT"
 
-    # Wait for connection
+    # Wait for connection - check heartbeat messages for wifi status
     log "Waiting for WiFi connection..."
     for i in {1..60}; do
-        send_cmd "WIFI"
-        response=$(read_response)
-        if echo "$response" | grep -q '"connected":true'; then
-            ip=$(echo "$response" | grep -o '"ip":"[^"]*"' | cut -d'"' -f4)
-            log "WiFi connected! IP: $ip"
+        # Read heartbeat messages (come every 5 seconds)
+        response=$(timeout 6 head -c 500 < "$SERIAL_PORT" 2>/dev/null) || true
+
+        # Check for wifi:true in heartbeat
+        if echo "$response" | grep -q '"wifi":true'; then
+            log "WiFi connected!"
+            # Try to get IP from WIFI command
+            send_cmd "WIFI"
+            sleep 0.5
+            wifi_response=$(timeout 2 head -c 300 < "$SERIAL_PORT" 2>/dev/null) || true
+            if echo "$wifi_response" | grep -q '"ip"'; then
+                ip=$(echo "$wifi_response" | grep -o '"ip":"[^"]*"' | cut -d'"' -f4)
+                log "ESP32 IP: $ip"
+            fi
             return 0
         fi
-        sleep 2
+        log "Waiting... (attempt $i/60)"
     done
 
-    log "ERROR: WiFi connection failed after 120 seconds"
+    log "ERROR: WiFi connection failed after timeout"
     return 1
 }
 
