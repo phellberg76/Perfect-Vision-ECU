@@ -75,9 +75,6 @@ configure_wifi() {
 
     log "Configuring WiFi: SSID=$ESP32_WIFI_SSID"
 
-    # Configure serial port
-    stty -F "$SERIAL_PORT" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null
-
     # Set credentials
     send_cmd "WIFI_SSID $ESP32_WIFI_SSID"
     send_cmd "WIFI_PASS $ESP32_WIFI_PASS"
@@ -85,24 +82,32 @@ configure_wifi() {
 
     # Wait for connection - check heartbeat messages for wifi status
     log "Waiting for WiFi connection..."
-    for i in {1..60}; do
-        # Read heartbeat messages (come every 5 seconds)
-        response=$(timeout 6 head -c 500 < "$SERIAL_PORT" 2>/dev/null) || true
+    for i in {1..30}; do
+        # Read heartbeat (comes every 5 seconds)
+        response=""
+        exec 3<"$SERIAL_PORT"
+        read -t 6 -r response <&3 || true
+        exec 3<&-
+
+        log "Heartbeat: $response"
 
         # Check for wifi:true in heartbeat
         if echo "$response" | grep -q '"wifi":true'; then
             log "WiFi connected!"
-            # Try to get IP from WIFI command
+
+            # Try to get IP
             send_cmd "WIFI"
             sleep 0.5
-            wifi_response=$(timeout 2 head -c 300 < "$SERIAL_PORT" 2>/dev/null) || true
+            exec 3<"$SERIAL_PORT"
+            read -t 2 -r wifi_response <&3 || true
+            exec 3<&-
+
             if echo "$wifi_response" | grep -q '"ip"'; then
                 ip=$(echo "$wifi_response" | grep -o '"ip":"[^"]*"' | cut -d'"' -f4)
                 log "ESP32 IP: $ip"
             fi
             return 0
         fi
-        log "Waiting... (attempt $i/60)"
     done
 
     log "ERROR: WiFi connection failed after timeout"
