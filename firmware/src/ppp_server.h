@@ -69,6 +69,10 @@ private:
     size_t _rxLen;
     bool _escapeNext;
 
+    // Simple NAT state for ICMP
+    uint16_t _natIcmpId;
+    uint32_t _natOrigSrc;
+
     // Frame handling
     void sendPppFrame(uint8_t* data, size_t len);
     bool receivePppFrame(uint8_t* data, size_t* len);

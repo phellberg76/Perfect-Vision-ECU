@@ -112,6 +112,8 @@ PPPServer::PPPServer(HardwareSerial& serial)
     , _bytesRecv(0)
     , _rxLen(0)
     , _escapeNext(false)
+    , _natIcmpId(0)
+    , _natOrigSrc(0)
 {
 }
 
@@ -465,32 +467,87 @@ void PPPServer::handleIp(uint8_t* data, size_t len) {
         return;
     }
 
-    // Forward to WiFi interface
+    // Forward to WiFi interface with NAT
     Serial.println("[PPP] Forwarding to WiFi...");
 
-    // Create pbuf for the packet
-    struct pbuf* p = pbuf_alloc(PBUF_RAW, len, PBUF_RAM);
+    // Save original source IP for return path
+    uint32_t origSrcIp = (data[12] << 24) | (data[13] << 16) | (data[14] << 8) | data[15];
+    uint32_t origDstIp = dstIp;
+
+    // Get our WiFi IP
+    IPAddress wifiIp = WiFi.localIP();
+    if (wifiIp == IPAddress(0, 0, 0, 0)) {
+        Serial.println("[PPP] WiFi not connected");
+        return;
+    }
+
+    Serial.printf("[PPP] NAT: %d.%d.%d.%d -> %s\n",
+        data[12], data[13], data[14], data[15],
+        wifiIp.toString().c_str());
+
+    // Simple NAT: Replace source IP with our WiFi IP
+    data[12] = wifiIp[0];
+    data[13] = wifiIp[1];
+    data[14] = wifiIp[2];
+    data[15] = wifiIp[3];
+
+    // Recalculate IP header checksum
+    uint8_t ihl = (data[0] & 0x0F) * 4;
+    data[10] = 0;
+    data[11] = 0;
+    uint32_t sum = 0;
+    for (int i = 0; i < ihl; i += 2) {
+        sum += (data[i] << 8) | data[i + 1];
+    }
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    uint16_t cksum = ~sum;
+    data[10] = (cksum >> 8) & 0xFF;
+    data[11] = cksum & 0xFF;
+
+    // For ICMP, also need to track the request to route reply back
+    // Store mapping: WiFi IP + ICMP id -> original source IP
+    uint8_t protocol = data[9];
+    if (protocol == 1) {  // ICMP
+        // ICMP identifier is at offset ihl+4 (2 bytes)
+        uint16_t icmpId = (data[ihl + 4] << 8) | data[ihl + 5];
+        _natIcmpId = icmpId;
+        _natOrigSrc = origSrcIp;
+        Serial.printf("[PPP] NAT: Tracking ICMP id=%d for return\n", icmpId);
+    }
+
+    // Create pbuf and send via WiFi
+    struct pbuf* p = pbuf_alloc(PBUF_IP, len, PBUF_RAM);
     if (p == nullptr) {
         Serial.println("[PPP] Failed to allocate pbuf");
         return;
     }
-
     memcpy(p->payload, data, len);
 
-    // Get the WiFi netif
+    // Get WiFi netif and send
     struct netif* wifi_netif = netif_default;
-    if (wifi_netif == nullptr) {
-        Serial.println("[PPP] No default netif");
+    if (wifi_netif == nullptr || wifi_netif->output == nullptr) {
+        Serial.println("[PPP] No WiFi netif");
         pbuf_free(p);
         return;
     }
 
-    // Forward the packet
-#if LWIP_IPV4
-    ip4_input(p, wifi_netif);
-#else
+    // Get gateway for routing
+    ip4_addr_t dest;
+    IP4_ADDR(&dest, data[16], data[17], data[18], data[19]);
+
+    // Use gateway if destination is not on local network
+    ip4_addr_t* gw = netif_ip4_gw(wifi_netif);
+    if (gw && gw->addr != 0) {
+        Serial.printf("[PPP] Sending via gateway %s\n", ip4addr_ntoa(gw));
+        wifi_netif->output(wifi_netif, p, gw);
+    } else {
+        wifi_netif->output(wifi_netif, p, &dest);
+    }
+
     pbuf_free(p);
-#endif
+    Serial.println("[PPP] Packet sent to WiFi");
 }
 
 void PPPServer::handleIcmp(uint8_t* data, size_t len) {
