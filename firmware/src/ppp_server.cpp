@@ -32,6 +32,11 @@ extern "C" {
 #define PPP_IP       0x0021
 #define PPP_LCP      0xC021
 #define PPP_IPCP     0x8021
+#define PPP_IPV6CP   0x8057
+#define PPP_CCP      0x80FD
+
+// LCP Protocol-Reject code
+#define PROT_REJ     8
 
 // LCP/IPCP codes
 #define CONF_REQ     1
@@ -286,6 +291,12 @@ void PPPServer::processFrame(uint8_t* data, size_t len) {
             break;
         case PPP_IP:
             handleIp(payload, payloadLen);
+            break;
+        case PPP_CCP:
+        case PPP_IPV6CP:
+            // Reject unsupported protocols with LCP Protocol-Reject
+            Serial.printf("[PPP] Rejecting protocol 0x%04X\n", protocol);
+            sendProtocolReject(protocol, payload, payloadLen);
             break;
         default:
             Serial.printf("[PPP] Unknown protocol: 0x%04X\n", protocol);
@@ -562,6 +573,42 @@ void PPPServer::sendIpcpConfigReq() {
     uint16_t len = pos - 2;
     frame[lenPos] = (len >> 8) & 0xFF;
     frame[lenPos + 1] = len & 0xFF;
+
+    sendPppFrame(frame, pos);
+}
+
+void PPPServer::sendProtocolReject(uint16_t protocol, uint8_t* data, size_t len) {
+    uint8_t frame[256];
+    size_t pos = 0;
+
+    // LCP Protocol
+    frame[pos++] = 0xC0;
+    frame[pos++] = 0x21;
+
+    // Code: Protocol-Reject
+    frame[pos++] = PROT_REJ;
+
+    // Identifier
+    static uint8_t rejId = 1;
+    frame[pos++] = rejId++;
+
+    // Length (will fill in later)
+    size_t lenPos = pos;
+    pos += 2;
+
+    // Rejected protocol
+    frame[pos++] = (protocol >> 8) & 0xFF;
+    frame[pos++] = protocol & 0xFF;
+
+    // Copy some of the rejected packet (up to reasonable size)
+    size_t copyLen = (len > 64) ? 64 : len;
+    memcpy(frame + pos, data, copyLen);
+    pos += copyLen;
+
+    // Fill in length
+    uint16_t pktLen = pos - 2;  // Exclude protocol bytes
+    frame[lenPos] = (pktLen >> 8) & 0xFF;
+    frame[lenPos + 1] = pktLen & 0xFF;
 
     sendPppFrame(frame, pos);
 }

@@ -84,6 +84,7 @@ private:
     void sendLcpConfigAck(uint8_t id, uint8_t* options, size_t optLen);
     void sendIpcpConfigReq();
     void sendIpcpConfigAck(uint8_t id, uint8_t* options, size_t optLen);
+    void sendProtocolReject(uint16_t protocol, uint8_t* data, size_t len);
 };
 
 #endif // PPP_SERVER_H
