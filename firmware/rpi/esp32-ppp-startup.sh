@@ -37,18 +37,33 @@ read_response() {
 
 wait_for_esp32() {
     log "Waiting for ESP32 to boot..."
-    for i in {1..30}; do
-        # Read any available data (heartbeats come every 5 seconds)
-        response=$(timeout 2 head -c 500 < "$SERIAL_PORT" 2>/dev/null) || true
-        # Check for any valid JSON response (heartbeat, status, etc.)
-        if echo "$response" | grep -qE '"type":"(heartbeat|status|startup)"'; then
-            log "ESP32 is responding"
-            log "Response: $(echo "$response" | head -1)"
+
+    # Configure serial port
+    stty -F "$SERIAL_PORT" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null
+
+    # Give ESP32 time to boot and start sending heartbeats
+    sleep 3
+
+    # Try to read data for up to 30 seconds
+    for i in {1..5}; do
+        log "Listening for ESP32... (attempt $i/5)"
+
+        # Read with timeout - this matches the manual test that worked
+        response=""
+        exec 3<"$SERIAL_PORT"
+        read -t 6 -r response <&3 || true
+        exec 3<&-
+
+        log "Read: $response"
+
+        # Check for any JSON
+        if echo "$response" | grep -q '{'; then
+            log "ESP32 is responding!"
             return 0
         fi
-        sleep 1
     done
-    log "ERROR: ESP32 not responding after 30 seconds"
+
+    log "ERROR: ESP32 not responding"
     return 1
 }
 
