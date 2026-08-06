@@ -220,15 +220,12 @@ upload() {
             upload_uart
             ;;
         auto|*)
-            local usb_dev=$(find_usb_device)
-            if [ -n "$usb_dev" ]; then
-                log "Auto-detected USB device: $usb_dev"
-                upload_usb "$usb_dev"
-            elif [ -e "$UART_DEV" ]; then
-                log "No USB device found, using UART..."
+            # Prefer UART (always available on this board)
+            if [ -e "$UART_DEV" ]; then
+                log "Using UART for programming..."
                 upload_uart
             else
-                error "No programming interface found. Connect ESP32 via USB-C or check UART."
+                error "UART device $UART_DEV not found."
             fi
             ;;
     esac
