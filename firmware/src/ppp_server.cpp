@@ -353,17 +353,18 @@ void PPPServer::handleLcp(uint8_t* data, size_t len) {
 
         case ECHO_REQ:
             // Respond to echo
+            Serial.printf("[PPP] LCP: Echo-Request id=%d, sending Echo-Reply\n", id);
             {
                 uint8_t echoReply[8];
                 echoReply[0] = ECHO_REP;
                 echoReply[1] = id;
                 echoReply[2] = 0;
                 echoReply[3] = 8;
-                // Magic number
-                echoReply[4] = 0;
-                echoReply[5] = 0;
-                echoReply[6] = 0;
-                echoReply[7] = 0;
+                // Magic number (should echo back theirs, but 0 works)
+                echoReply[4] = 0x12;
+                echoReply[5] = 0x34;
+                echoReply[6] = 0x56;
+                echoReply[7] = 0x78;
 
                 uint8_t frame[10] = {0xC0, 0x21};
                 memcpy(frame + 2, echoReply, 8);
