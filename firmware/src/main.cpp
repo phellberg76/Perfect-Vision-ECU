@@ -243,6 +243,10 @@ void setup() {
     // Turn on status LED - setup complete, healthy operation
     digitalWrite(PIN_LED, HIGH);
     PPP_Serial.println("{\"type\":\"ready\",\"led\":\"on\"}");
+
+    // Auto-start HTTP proxy (AP mode) on boot
+    Serial.println("[INIT] Starting HTTP Proxy AP...");
+    startHttpProxyWithConfig("PerfectVisionPlanter", "12345678");
 }
 
 // =============================================================================
