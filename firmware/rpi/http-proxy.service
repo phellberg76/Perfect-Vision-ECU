@@ -1,0 +1,18 @@
+[Unit]
+Description=HTTP Proxy Daemon for GPS Hat v4
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/gps-hat/http_proxy_daemon.py --port /dev/ttyAMA0 --target localhost:80
+Restart=always
+RestartSec=5
+User=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=http-proxy
+
+[Install]
+WantedBy=multi-user.target

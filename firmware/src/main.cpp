@@ -41,11 +41,13 @@
 #include "esp_wifi.h"
 #include "ppp_server.h"
 #include "slip_server.h"
+#include "http_proxy.h"
 
 // Network sharing mode
-#define NET_MODE_NONE   0
-#define NET_MODE_PPP    1
-#define NET_MODE_SLIP   2
+#define NET_MODE_NONE       0
+#define NET_MODE_PPP        1
+#define NET_MODE_SLIP       2
+#define NET_MODE_HTTP_PROXY 3
 
 // =============================================================================
 // Pin Definitions
@@ -110,6 +112,10 @@ PPPServer pppServer(PPP_Serial);
 
 // SLIP Server (simpler alternative to PPP)
 SLIPServer slipServer(PPP_Serial);
+
+// HTTP Proxy (ESP32 AP mode, forwards to RPi localhost)
+HttpProxy httpProxy(PPP_Serial);
+
 int netMode = NET_MODE_NONE;
 
 // SPI slave buffers
@@ -152,6 +158,9 @@ void startPpp();
 void stopPpp();
 void startSlip();
 void stopSlip();
+void startHttpProxy();
+void startHttpProxyWithConfig(const String& ssid, const String& pass);
+void stopHttpProxy();
 
 // =============================================================================
 // SPI Slave Callback
@@ -294,6 +303,19 @@ void loop() {
             netMode = NET_MODE_NONE;
             pppActive = false;
         }
+    } else if (netMode == NET_MODE_HTTP_PROXY) {
+        // Process HTTP requests from WiFi clients
+        httpProxy.process();
+
+        // Also check for UART commands (to allow stopping proxy)
+        if (PPP_Serial.available()) {
+            String cmd = PPP_Serial.readStringUntil('\n');
+            cmd.trim();
+            if (cmd == "HTTP_PROXY_STOP") {
+                stopHttpProxy();
+                PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"http_proxy\",\"status\":\"stopped\"}");
+            }
+        }
     } else if (PPP_Serial.available()) {
         // Command mode - handle text commands
         String cmd = PPP_Serial.readStringUntil('\n');
@@ -345,6 +367,24 @@ void loop() {
         } else if (cmd == "WIFI_DISCONNECT") {
             disconnectWifi();
             PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"wifi_disconnect\"}");
+        } else if (cmd == "HTTP_PROXY_START") {
+            startHttpProxy();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"http_proxy\",\"status\":\"started\"}");
+        } else if (cmd.startsWith("HTTP_PROXY_START ")) {
+            // HTTP_PROXY_START ssid password
+            String params = cmd.substring(17);
+            int spaceIdx = params.indexOf(' ');
+            if (spaceIdx > 0) {
+                String ssid = params.substring(0, spaceIdx);
+                String pass = params.substring(spaceIdx + 1);
+                startHttpProxyWithConfig(ssid, pass);
+                PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"http_proxy\",\"status\":\"started\",\"ssid\":\"" + ssid + "\"}");
+            } else {
+                PPP_Serial.println("{\"type\":\"error\",\"msg\":\"invalid_params\"}");
+            }
+        } else if (cmd == "HTTP_PROXY_STOP") {
+            stopHttpProxy();
+            PPP_Serial.println("{\"type\":\"ack\",\"cmd\":\"http_proxy\",\"status\":\"stopped\"}");
         }
     }
 
@@ -625,6 +665,30 @@ void startSlip() {
 
 void stopSlip() {
     slipServer.stop();
+    pppActive = false;
+    netMode = NET_MODE_NONE;
+}
+
+// =============================================================================
+// HTTP Proxy Functions
+// =============================================================================
+
+void startHttpProxy() {
+    if (httpProxy.begin()) {
+        netMode = NET_MODE_HTTP_PROXY;
+        pppActive = true;  // Disable heartbeat messages
+    }
+}
+
+void startHttpProxyWithConfig(const String& ssid, const String& pass) {
+    if (httpProxy.begin(ssid.c_str(), pass.c_str())) {
+        netMode = NET_MODE_HTTP_PROXY;
+        pppActive = true;  // Disable heartbeat messages
+    }
+}
+
+void stopHttpProxy() {
+    httpProxy.stop();
     pppActive = false;
     netMode = NET_MODE_NONE;
 }
