@@ -15,11 +15,12 @@ import re
 import subprocess
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
+from string import Template
 
 PORT = 80
 
 
-def run_cmd(cmd: list, timeout: int = 5) -> tuple[int, str, str]:
+def run_cmd(cmd: list, timeout: int = 5) -> tuple:
     """Run command and return (returncode, stdout, stderr)."""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -167,7 +168,7 @@ def scan_wifi_networks() -> list:
     return networks[:10]  # Return top 10
 
 
-def add_wifi_network(ssid: str, password: str) -> tuple[bool, str]:
+def add_wifi_network(ssid: str, password: str) -> tuple:
     """Add a new WiFi network and connect to it."""
     if not ssid:
         return False, "SSID is required"
@@ -206,7 +207,8 @@ def add_wifi_network(ssid: str, password: str) -> tuple[bool, str]:
     return True, f"Network '{ssid}' added and connecting..."
 
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+# Use Template with $variable syntax to avoid CSS brace conflicts
+HTML_TEMPLATE = Template("""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -294,25 +296,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
     <h1>GPS Hat Network Config</h1>
 
-    {message}
+    $message
 
     <h2>WiFi Status</h2>
     <div class="card">
         <div class="status-row">
             <span class="label">Status</span>
-            <span class="value {wifi_status_class}">{wifi_status_text}</span>
+            <span class="value $wifi_status_class">$wifi_status_text</span>
         </div>
         <div class="status-row">
             <span class="label">Network</span>
-            <span class="value">{wifi_ssid}</span>
+            <span class="value">$wifi_ssid</span>
         </div>
         <div class="status-row">
             <span class="label">IP Address</span>
-            <span class="value">{wifi_ip}</span>
+            <span class="value">$wifi_ip</span>
         </div>
         <div class="status-row">
             <span class="label">Signal</span>
-            <span class="value">{wifi_signal}</span>
+            <span class="value">$wifi_signal</span>
         </div>
     </div>
 
@@ -320,23 +322,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="card">
         <div class="status-row">
             <span class="label">Status</span>
-            <span class="value {cell_status_class}">{cell_status_text}</span>
+            <span class="value $cell_status_class">$cell_status_text</span>
         </div>
         <div class="status-row">
             <span class="label">Operator</span>
-            <span class="value">{cell_operator}</span>
+            <span class="value">$cell_operator</span>
         </div>
         <div class="status-row">
             <span class="label">Technology</span>
-            <span class="value">{cell_technology}</span>
+            <span class="value">$cell_technology</span>
         </div>
         <div class="status-row">
             <span class="label">IP Address</span>
-            <span class="value">{cell_ip}</span>
+            <span class="value">$cell_ip</span>
         </div>
         <div class="status-row">
             <span class="label">Signal</span>
-            <span class="value">{cell_signal}</span>
+            <span class="value">$cell_signal</span>
         </div>
     </div>
 
@@ -359,14 +361,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <button type="submit" class="scan-btn">Scan for Networks</button>
         </form>
         <div class="network-list">
-            {available_networks}
+            $available_networks
         </div>
     </div>
 
     <script>
         // Click on network to fill in SSID
-        document.querySelectorAll('.network-item').forEach(item => {
-            item.addEventListener('click', () => {
+        document.querySelectorAll('.network-item').forEach(function(item) {
+            item.addEventListener('click', function() {
                 document.getElementById('ssid').value = item.dataset.ssid;
                 document.getElementById('password').focus();
             });
@@ -374,7 +376,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </script>
 </body>
 </html>
-"""
+""")
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -396,7 +398,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode())
 
-    def render_page(self, message: str = "", message_type: str = ""):
+    def render_page(self, message: str = "", message_type: str = "", networks_html: str = ""):
         wifi = get_wifi_status()
         cell = get_cellular_status()
 
@@ -405,10 +407,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         if message:
             msg_html = f'<div class="message {message_type}">{message}</div>'
 
-        # Format available networks
-        networks_html = "<p style='color:#888;padding:10px;'>Click 'Scan' to find networks</p>"
+        # Default networks placeholder
+        if not networks_html:
+            networks_html = "<p style='color:#888;padding:10px;'>Click 'Scan' to find networks</p>"
 
-        html = HTML_TEMPLATE.format(
+        html = HTML_TEMPLATE.substitute(
             message=msg_html,
             wifi_status_class="connected" if wifi["connected"] else "disconnected",
             wifi_status_text="Connected" if wifi["connected"] else "Disconnected",
@@ -443,24 +446,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             if not networks_html:
                 networks_html = "<p style='color:#888;padding:10px;'>No networks found</p>"
 
-            wifi = get_wifi_status()
-            cell = get_cellular_status()
-            html = HTML_TEMPLATE.format(
-                message='<div class="message success">Scan complete</div>',
-                wifi_status_class="connected" if wifi["connected"] else "disconnected",
-                wifi_status_text="Connected" if wifi["connected"] else "Disconnected",
-                wifi_ssid=wifi["ssid"] or "-",
-                wifi_ip=wifi["ip"] or "-",
-                wifi_signal=wifi["signal"] or "-",
-                cell_status_class="connected" if cell["connected"] else "disconnected",
-                cell_status_text="Connected" if cell["connected"] else "Disconnected",
-                cell_operator=cell["operator"] or "-",
-                cell_technology=cell["technology"] or "-",
-                cell_ip=cell["ip"] or "-",
-                cell_signal=cell["signal"] or "-",
-                available_networks=networks_html
-            )
-            self.send_html(html)
+            self.send_html(self.render_page("Scan complete", "success", networks_html))
 
         elif path == "/api/status":
             self.send_json({
