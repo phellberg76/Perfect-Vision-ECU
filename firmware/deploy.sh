@@ -44,9 +44,15 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Clean up PPP and serial port before flashing
-cleanup_serial() {
-    log "Cleaning up serial port..."
+# Stop services that use the serial port
+stop_services() {
+    log "Stopping services that use serial port..."
+
+    # Stop http-proxy service if running
+    if systemctl is-active --quiet http-proxy.service 2>/dev/null; then
+        log "Stopping http-proxy.service..."
+        sudo systemctl stop http-proxy.service
+    fi
 
     # Kill any pppd processes using our serial port
     if pgrep -x pppd > /dev/null; then
@@ -54,8 +60,30 @@ cleanup_serial() {
         sudo killall pppd 2>/dev/null || true
         sleep 1
     fi
+}
 
-    # Kill any process holding the serial port
+# Restart services after flashing
+restart_services() {
+    log "Restarting services..."
+
+    # Wait for ESP32 to boot
+    sleep 2
+
+    # Restart http-proxy service if it was enabled
+    if systemctl is-enabled --quiet http-proxy.service 2>/dev/null; then
+        log "Starting http-proxy.service..."
+        sudo systemctl start http-proxy.service
+    fi
+}
+
+# Clean up PPP and serial port before flashing
+cleanup_serial() {
+    log "Cleaning up serial port..."
+
+    # Stop services first
+    stop_services
+
+    # Kill any remaining process holding the serial port
     if command -v fuser &> /dev/null; then
         sudo fuser -k "$UART_DEV" 2>/dev/null || true
     fi
@@ -202,6 +230,7 @@ upload_uart() {
 
     log "Upload complete."
     reset_esp32
+    restart_services
 }
 
 # Upload with auto-detection or specified method
