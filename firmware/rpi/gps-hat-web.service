@@ -1,0 +1,18 @@
+[Unit]
+Description=GPS Hat Web Interface
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/gps-hat/web_interface.py
+Restart=always
+RestartSec=5
+User=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gps-hat-web
+
+[Install]
+WantedBy=multi-user.target
