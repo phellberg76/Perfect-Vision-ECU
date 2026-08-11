@@ -3,8 +3,18 @@
 # Setup HTTP Proxy and Web Interface for GPS Hat v4
 #
 # This installs:
-# - HTTP proxy daemon (forwards requests from ESP32 to localhost)
-# - Web interface (shows WiFi/cellular status, allows WiFi provisioning)
+# - nginx (reverse proxy on port 80)
+# - HTTP proxy daemon (forwards requests from ESP32 to nginx)
+# - Web interface (network status and WiFi config)
+#
+# Architecture:
+#   Phone -> ESP32 AP (port 80) -> UART -> http-proxy -> nginx (port 80)
+#                                                          |
+#                                          +---------------+---------------+
+#                                          |                               |
+#                                   /planter_app/*                        /*
+#                                          |                               |
+#                                  planter app:8080              web_interface:8081
 #
 
 set -e
@@ -16,51 +26,61 @@ echo "=== GPS Hat v4 Setup ==="
 echo ""
 
 # Install dependencies
-echo "[1/5] Installing dependencies..."
+echo "[1/6] Installing dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-serial wireless-tools
+apt-get install -y -qq python3 python3-serial wireless-tools nginx
 
 # Create install directory
-echo "[2/5] Installing daemons..."
+echo "[2/6] Installing daemons..."
 mkdir -p "$INSTALL_DIR"
 cp "$SCRIPT_DIR/http_proxy_daemon.py" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/web_interface.py" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/http_proxy_daemon.py"
 chmod +x "$INSTALL_DIR/web_interface.py"
 
+# Configure nginx
+echo "[3/6] Configuring nginx..."
+cp "$SCRIPT_DIR/nginx-gps-hat.conf" /etc/nginx/sites-available/gps-hat
+ln -sf /etc/nginx/sites-available/gps-hat /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+
 # Install systemd services
-echo "[3/5] Installing systemd services..."
+echo "[4/6] Installing systemd services..."
 cp "$SCRIPT_DIR/http-proxy.service" /etc/systemd/system/
 cp "$SCRIPT_DIR/gps-hat-web.service" /etc/systemd/system/
 systemctl daemon-reload
 
 # Enable services
-echo "[4/5] Enabling services..."
+echo "[5/6] Enabling services..."
+systemctl enable nginx
 systemctl enable http-proxy.service
 systemctl enable gps-hat-web.service
 
 # Start services
-echo "[5/5] Starting services..."
-systemctl start gps-hat-web.service
-systemctl start http-proxy.service
+echo "[6/6] Starting services..."
+systemctl restart nginx
+systemctl restart gps-hat-web.service
+systemctl restart http-proxy.service
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Services installed:"
-echo "  - gps-hat-web  : Web interface on port 80"
-echo "  - http-proxy   : ESP32 HTTP proxy daemon"
+echo "Architecture:"
+echo "  ESP32 AP (port 80) -> http-proxy -> nginx (port 80)"
+echo "                                        |"
+echo "                         +--------------+--------------+"
+echo "                         |                             |"
+echo "                  /planter_app/*                      /*"
+echo "                         |                             |"
+echo "                 planter app:8080            web_interface:8081"
+echo ""
+echo "Services:"
+echo "  nginx          : Reverse proxy on port 80"
+echo "  gps-hat-web    : Web interface on port 8081"
+echo "  http-proxy     : ESP32 UART proxy"
 echo ""
 echo "Commands:"
-echo "  systemctl status gps-hat-web http-proxy"
-echo "  journalctl -u gps-hat-web -f"
+echo "  systemctl status nginx gps-hat-web http-proxy"
 echo "  journalctl -u http-proxy -f"
-echo ""
-echo "To start the ESP32 AP, send this command over UART:"
-echo "  echo 'HTTP_PROXY_START' > /dev/ttyAMA0"
-echo ""
-echo "Or with custom SSID/password:"
-echo "  echo 'HTTP_PROXY_START MyNetwork MyPassword123' > /dev/ttyAMA0"
-echo ""
-echo "Then connect to the ESP32 AP and browse to http://192.168.4.1/"
 echo ""
