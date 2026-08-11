@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/gps-hat/http_proxy_daemon.py --port /dev/ttyAMA0 --target localhost:80
+ExecStart=/opt/gps-hat/http_proxy_daemon.py --port /dev/ttyAMA0 --target localhost:8080
 Restart=always
 RestartSec=5
 User=root

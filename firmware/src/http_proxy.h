@@ -14,7 +14,7 @@
 #include <WebServer.h>
 
 // Configuration
-#define HTTP_PROXY_PORT       80
+#define HTTP_PROXY_PORT       8080
 #define HTTP_PROXY_TIMEOUT_MS 10000
 #define HTTP_PROXY_MAX_BODY   8192
 

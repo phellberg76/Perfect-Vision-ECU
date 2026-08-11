@@ -17,7 +17,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 from string import Template
 
-PORT = 80
+PORT = 8080
 
 
 def run_cmd(cmd: list, timeout: int = 5) -> tuple:
