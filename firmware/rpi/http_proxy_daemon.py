@@ -21,7 +21,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,7 +75,9 @@ class HttpProxyDaemon:
         req_headers = data.get('headers', {})
         body = data.get('body', '')
 
-        url = urljoin(self.target, path)
+        # URL-encode path (preserve / and ? and = and &)
+        encoded_path = quote(path, safe='/?=&')
+        url = urljoin(self.target, encoded_path)
         log.info(f"[{request_id}] {method} {url}")
 
         try:
