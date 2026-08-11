@@ -188,6 +188,8 @@ void setup() {
     Serial.println("");
 
     // Initialize UART0 for RPi communication
+    // Increase RX buffer size to handle large JSON responses (default is 256)
+    PPP_Serial.setRxBufferSize(4096);
     PPP_Serial.begin(PPP_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
     delay(100);  // Give UART time to initialize
 
