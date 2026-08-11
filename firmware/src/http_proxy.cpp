@@ -91,13 +91,6 @@ void HttpProxy::handleRequest() {
     }
 
     String path = _server->uri();
-    if (_server->args() > 0) {
-        path += "?";
-        for (int i = 0; i < _server->args(); i++) {
-            if (i > 0) path += "&";
-            path += _server->argName(i) + "=" + _server->arg(i);
-        }
-    }
 
     // Collect headers
     JsonDocument headersDoc;
@@ -107,10 +100,36 @@ void HttpProxy::handleRequest() {
     String headers;
     serializeJson(headersDoc, headers);
 
-    // Get body for POST/PUT/PATCH
+    // Handle body and query params
     String body = "";
     if (_server->hasArg("plain")) {
+        // Raw body (JSON, etc.)
         body = _server->arg("plain");
+        // For GET, args go in query string
+        if (method == "GET" && _server->args() > 0) {
+            path += "?";
+            for (int i = 0; i < _server->args(); i++) {
+                if (_server->argName(i) == "plain") continue;
+                if (path.endsWith("?") == false) path += "&";
+                path += _server->argName(i) + "=" + _server->arg(i);
+            }
+        }
+    } else if (_server->args() > 0) {
+        // Form data - for POST/PUT/PATCH, encode as body; for GET, as query string
+        if (method == "POST" || method == "PUT" || method == "PATCH") {
+            // Encode form data as urlencoded body
+            for (int i = 0; i < _server->args(); i++) {
+                if (i > 0) body += "&";
+                body += _server->argName(i) + "=" + _server->arg(i);
+            }
+        } else {
+            // GET - add to query string
+            path += "?";
+            for (int i = 0; i < _server->args(); i++) {
+                if (i > 0) path += "&";
+                path += _server->argName(i) + "=" + _server->arg(i);
+            }
+        }
     }
 
     Serial.printf("[HTTP_PROXY] %s %s\n", method.c_str(), path.c_str());
