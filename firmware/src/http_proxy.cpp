@@ -144,7 +144,16 @@ void HttpProxy::handleRequest() {
         JsonDocument respHeadersDoc;
         if (deserializeJson(respHeadersDoc, responseHeaders) == DeserializationError::Ok) {
             for (JsonPair kv : respHeadersDoc.as<JsonObject>()) {
-                _server->sendHeader(kv.key().c_str(), kv.value().as<String>());
+                String headerName = kv.key().c_str();
+                // Skip hop-by-hop headers that ESP32 WebServer handles itself
+                // Transfer-Encoding: chunked from nginx conflicts with WebServer's Content-Length
+                if (headerName.equalsIgnoreCase("Transfer-Encoding") ||
+                    headerName.equalsIgnoreCase("Content-Length") ||
+                    headerName.equalsIgnoreCase("Connection") ||
+                    headerName.equalsIgnoreCase("Keep-Alive")) {
+                    continue;
+                }
+                _server->sendHeader(headerName.c_str(), kv.value().as<String>());
             }
         }
 
