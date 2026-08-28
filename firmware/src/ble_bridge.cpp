@@ -4,9 +4,6 @@
 
 #include "ble_bridge.h"
 
-// Global pointer for callbacks to access bridge instance
-static BleBridge* g_bridge = nullptr;
-
 // =============================================================================
 // BleBridge Implementation
 // =============================================================================
@@ -18,7 +15,6 @@ BleBridge::BleBridge(HardwareSerial& serial)
     , _pResponseChar(nullptr)
     , _deviceConnected(false)
 {
-    g_bridge = this;
 }
 
 bool BleBridge::begin(const char* deviceName) {
@@ -141,19 +137,14 @@ void BleBridge::onBleDataReceived(const String& data) {
     _serial.println(data);
 }
 
-// =============================================================================
-// Server Callbacks
-// =============================================================================
-
-void BleServerCallbacks::onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) {
-    Serial.printf("[BLE] Client connected: %s\n", connInfo.getAddress().toString().c_str());
-
-    // Update connection parameters for better throughput
-    pServer->updateConnParams(connInfo.getConnHandle(), 12, 12, 0, 100);
+void BleBridge::onClientConnect() {
+    _deviceConnected = true;
+    Serial.println("[BLE] Client connected");
 }
 
-void BleServerCallbacks::onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) {
-    Serial.printf("[BLE] Client disconnected (reason: %d)\n", reason);
+void BleBridge::onClientDisconnect() {
+    _deviceConnected = false;
+    Serial.println("[BLE] Client disconnected");
 
     // Restart advertising
     NimBLEDevice::getAdvertising()->start();
@@ -161,17 +152,33 @@ void BleServerCallbacks::onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& con
 }
 
 // =============================================================================
+// Server Callbacks
+// =============================================================================
+
+void BleServerCallbacks::onConnect(NimBLEServer* pServer) {
+    if (_bridge) {
+        _bridge->onClientConnect();
+    }
+}
+
+void BleServerCallbacks::onDisconnect(NimBLEServer* pServer) {
+    if (_bridge) {
+        _bridge->onClientDisconnect();
+    }
+}
+
+// =============================================================================
 // Request Characteristic Callbacks
 // =============================================================================
 
-void RequestCharCallbacks::onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) {
+void RequestCharCallbacks::onWrite(NimBLECharacteristic* pCharacteristic) {
     std::string value = pCharacteristic->getValue();
 
-    if (value.length() > 0) {
+    if (value.length() > 0 && _bridge != nullptr) {
         String data = String(value.c_str());
         data.trim();
 
-        if (data.length() > 0 && _bridge != nullptr) {
+        if (data.length() > 0) {
             _bridge->onBleDataReceived(data);
         }
     }

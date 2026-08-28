@@ -43,6 +43,10 @@ public:
     // Callback for when data is received from BLE client
     void onBleDataReceived(const String& data);
 
+    // Connection state callbacks
+    void onClientConnect();
+    void onClientDisconnect();
+
 private:
     HardwareSerial& _serial;
     NimBLEServer* _pServer;
@@ -59,8 +63,8 @@ class BleServerCallbacks : public NimBLEServerCallbacks {
 public:
     BleServerCallbacks(BleBridge* bridge) : _bridge(bridge) {}
 
-    void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override;
-    void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override;
+    void onConnect(NimBLEServer* pServer) override;
+    void onDisconnect(NimBLEServer* pServer) override;
 
 private:
     BleBridge* _bridge;
@@ -71,7 +75,7 @@ class RequestCharCallbacks : public NimBLECharacteristicCallbacks {
 public:
     RequestCharCallbacks(BleBridge* bridge) : _bridge(bridge) {}
 
-    void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override;
+    void onWrite(NimBLECharacteristic* pCharacteristic) override;
 
 private:
     BleBridge* _bridge;
