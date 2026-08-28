@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import base64
 import json
 import logging
 import serial
@@ -102,14 +103,34 @@ class HttpProxyDaemon:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 status = resp.status
                 resp_headers = dict(resp.headers)
-                resp_body = resp.read().decode('utf-8', errors='replace')
+                raw_body = resp.read()
 
-                # Truncate body if too large (ESP32 has limited buffer)
-                if len(resp_body) > 8000:
-                    resp_body = resp_body[:8000]
-                    log.warning(f"[{request_id}] Response truncated to 8000 bytes")
+                # Check if response is binary based on content type
+                content_type = resp_headers.get('Content-Type', resp_headers.get('content-type', ''))
+                is_binary = any(ct in content_type.lower() for ct in [
+                    'image/', 'audio/', 'video/', 'application/octet-stream',
+                    'application/pdf', 'application/zip', 'font/'
+                ])
 
-                log.info(f"[{request_id}] Response: {status} ({len(resp_body)} bytes)")
+                if is_binary:
+                    # Base64 encode binary data
+                    # Limit raw binary size (base64 expands by ~33%)
+                    max_binary_size = 6000  # Results in ~8000 chars base64
+                    if len(raw_body) > max_binary_size:
+                        raw_body = raw_body[:max_binary_size]
+                        log.warning(f"[{request_id}] Binary response truncated to {max_binary_size} bytes")
+                    resp_body = base64.b64encode(raw_body).decode('ascii')
+                    resp_headers['X-Body-Encoding'] = 'base64'
+                    log.info(f"[{request_id}] Response: {status} (binary, {len(raw_body)} bytes -> {len(resp_body)} base64)")
+                else:
+                    # Text response
+                    resp_body = raw_body.decode('utf-8', errors='replace')
+                    # Truncate body if too large (ESP32 has limited buffer)
+                    if len(resp_body) > 8000:
+                        resp_body = resp_body[:8000]
+                        log.warning(f"[{request_id}] Response truncated to 8000 bytes")
+                    log.info(f"[{request_id}] Response: {status} ({len(resp_body)} bytes)")
+
                 self.send_response(request_id, status, resp_headers, resp_body)
 
         except urllib.error.HTTPError as e:

@@ -1,0 +1,113 @@
+** Drc report for Raspberry-Pi-Backup-power-and-GPS-hat-v4.kicad_pcb **
+** Created on 2026-07-12T19:06:44+0200 **
+** Report includes: Errors, Warnings **
+
+** Found 29 DRC violations **
+[clearance]: Clearance violation (board minimum clearance 0.2000 mm; actual 0.1653 mm)
+    Local override; error
+    @(223.9003 mm, 161.7500 mm): Pad 1 [unconnected-(U12-INH-Pad1)] of U12 on B.Cu
+    @(223.2500 mm, 161.0997 mm): Pad 32 [GND] of U12 on B.Cu
+[clearance]: Clearance violation (board minimum clearance 0.2000 mm; actual 0.1653 mm)
+    Local override; error
+    @(223.9003 mm, 165.2500 mm): Pad 8 [Net-(U12-RESET_N)] of U12 on B.Cu
+    @(223.2500 mm, 165.9003 mm): Pad 9 [GPIO22] of U12 on B.Cu
+[clearance]: Clearance violation (board minimum clearance 0.2000 mm; actual 0.1653 mm)
+    Local override; error
+    @(219.7500 mm, 165.9003 mm): Pad 16 [unconnected-(U12-DIOB0-Pad16)] of U12 on B.Cu
+    @(219.0997 mm, 165.2500 mm): Pad 17 [+3.3V] of U12 on B.Cu
+[clearance]: Clearance violation (board minimum clearance 0.2000 mm; actual 0.1653 mm)
+    Local override; error
+    @(219.0997 mm, 161.7500 mm): Pad 24 [unconnected-(U12-WAKE_OUT-Pad24)] of U12 on B.Cu
+    @(219.7500 mm, 161.0997 mm): Pad 25 [Net-(U12-VDDAU)] of U12 on B.Cu
+[items_not_allowed]: Items not allowed (keepout area 'Antenna')
+    Rule: keepout area 'Antenna'; error
+    @(103.5000 mm, 186.5000 mm): Footprint MH3
+[items_not_allowed]: Items not allowed (keepout area 'Antenna')
+    Rule: keepout area 'Antenna'; error
+    @(103.5000 mm, 137.5000 mm): NPTH pad of MH1
+[items_not_allowed]: Items not allowed (keepout area 'Antenna')
+    Rule: keepout area 'Antenna'; error
+    @(103.5000 mm, 137.5000 mm): Footprint MH1
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(122.6633 mm, 153.6200 mm): Segment of J8 on B.Silkscreen
+    @(122.5733 mm, 155.5300 mm): Reference field of U2
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(121.6633 mm, 155.0000 mm): Reference field of J8
+    @(122.5733 mm, 155.5300 mm): Reference field of U2
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(121.6633 mm, 155.0000 mm): Reference field of J8
+    @(121.0733 mm, 169.2800 mm): Segment of U2 on B.Silkscreen
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(121.0733 mm, 169.2800 mm): Segment of U2 on B.Silkscreen
+    @(121.6633 mm, 159.8800 mm): Reference field of J11
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(183.8800 mm, 181.0000 mm): Reference field of J4
+    @(184.7250 mm, 182.1700 mm): Reference field of R11
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(183.8800 mm, 187.0000 mm): Reference field of J3
+    @(184.7250 mm, 188.1700 mm): Reference field of R10
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(229.1517 mm, 168.6803 mm): Segment of R12 on B.Silkscreen
+    @(228.9981 mm, 169.1203 mm): Reference field of R13
+[silk_overlap]: Silkscreen overlap
+    Rule: board setup constraints silk; warning
+    @(224.9417 mm, 161.5000 mm): Footprint text of U12 (*)
+    @(224.9417 mm, 161.5000 mm): Footprint text of U12 (*)
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(232.6900 mm, 110.0000 mm): Reference field of U5
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(114.0000 mm, 121.0000 mm): Segment of U4 on F.Silkscreen
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(164.0000 mm, 105.0000 mm): Segment of U4 on F.Silkscreen
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(215.5000 mm, 159.3300 mm): Reference field of FB1
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(228.9981 mm, 169.1203 mm): Reference field of R13
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(223.3400 mm, 157.5000 mm): Reference field of C14
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(183.8800 mm, 181.0000 mm): Reference field of J4
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(183.8800 mm, 187.0000 mm): Reference field of J3
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(221.5000 mm, 163.5000 mm): Reference field of U12
+[lib_footprint_issues]: The current configuration does not include the footprint library 'Library'.
+    Local override; warning
+    @(139.0000 mm, 113.0000 mm): Footprint U4
+[lib_footprint_mismatch]: Footprint 'PinSocket_2x20_P2.54mm_Vertical' does not match copy in library 'Connector_PinSocket_2.54mm'.
+    Local override; warning
+    @(108.3700 mm, 138.7700 mm): Footprint J1
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: board setup constraints silk; warning
+    @(260.0000 mm, 190.0000 mm): Segment on Edge.Cuts
+    @(188.5200 mm, 189.6125 mm): Polygon of J2 on F.Silkscreen
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: board setup constraints silk; warning
+    @(260.0000 mm, 100.0000 mm): Segment on Edge.Cuts
+    @(262.5000 mm, 129.0000 mm): Circle of BT4 on F.Silkscreen
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: board setup constraints silk; warning
+    @(260.0000 mm, 100.0000 mm): Segment on Edge.Cuts
+    @(262.5000 mm, 148.0000 mm): Circle of BT4 on F.Silkscreen
+
+** Found 0 unconnected pads **
+
+** Found 0 Footprint errors **
+
+** End of Report **

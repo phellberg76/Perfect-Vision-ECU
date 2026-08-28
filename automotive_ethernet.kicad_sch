@@ -3109,7 +3109,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Inductor_SMD:L_0201_0603Metric"
+		(property "Footprint" "Inductor_SMD:L_0402_1005Metric"
 			(at 163.83 72.898 90)
 			(effects
 				(font
@@ -3289,7 +3289,7 @@
 		(at 90.17 60.96 0)
 		(unit 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(dnp no)
 		(fields_autoplaced yes)
@@ -3894,7 +3894,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Capacitor_SMD:CP_Elec_3x5.3"
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
 			(at 44.45 64.4652 0)
 			(effects
 				(font
@@ -4028,7 +4028,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Inductor_SMD:L_0201_0603Metric"
+		(property "Footprint" "Inductor_SMD:L_0402_1005Metric"
 			(at 163.83 83.058 90)
 			(effects
 				(font

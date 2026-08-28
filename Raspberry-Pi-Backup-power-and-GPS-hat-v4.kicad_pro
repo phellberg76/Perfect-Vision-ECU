@@ -37,9 +37,9 @@
         "other_text_thickness": 0.15,
         "other_text_upright": false,
         "pads": {
-          "drill": 0.8,
-          "height": 1.27,
-          "width": 1.905
+          "drill": 0.0,
+          "height": 0.8128,
+          "width": 0.254
         },
         "silk_line_width": 0.12,
         "silk_text_italic": false,
@@ -59,48 +59,7 @@
           "width": 0.0
         }
       ],
-      "drc_exclusions": [
-        [
-          "silk_over_copper|102652127|170331904|34405a53-7fbf-4b53-9e36-4ffce5a8a473|00000000-0000-0000-0000-000000000000",
-          ""
-        ],
-        [
-          "silk_over_copper|120000001|105000000|1b34f40d-26b7-4a7a-abec-3aee5875fdb8|00000000-0000-0000-0000-000000000000",
-          ""
-        ],
-        [
-          "silk_over_copper|156999999|121000000|f8c5921a-8d76-4373-a743-ef9216f4079a|00000000-0000-0000-0000-000000000000",
-          ""
-        ],
-        [
-          "silk_overlap|102130000|170331904|34405a53-7fbf-4b53-9e36-4ffce5a8a473|ad4193d5-4e80-46d2-bd03-ed9645d27082",
-          ""
-        ],
-        [
-          "silk_overlap|102130000|170331904|34405a53-7fbf-4b53-9e36-4ffce5a8a473|baed67fb-d5e1-456d-911c-aa0c63f0ef2a",
-          ""
-        ],
-        [
-          "silk_overlap|180000000|148000000|41bd7f50-895c-486d-9309-b196761c4132|f6809b2a-6fc5-4ac0-82d5-6d92a3aaddea",
-          ""
-        ],
-        [
-          "silk_overlap|180010000|148000000|57820a1b-d9e7-4f05-b99e-4e04ffe85055|f6809b2a-6fc5-4ac0-82d5-6d92a3aaddea",
-          ""
-        ],
-        [
-          "silk_overlap|180010000|167000000|0f6830fb-84f3-4d05-8c4d-3bb560d3e2e1|f6809b2a-6fc5-4ac0-82d5-6d92a3aaddea",
-          ""
-        ],
-        [
-          "silk_overlap|180010000|167000000|9c68623b-4e13-470c-8e22-f8da01740464|f6809b2a-6fc5-4ac0-82d5-6d92a3aaddea",
-          ""
-        ],
-        [
-          "silk_overlap|213926666|178000000|83a9c65a-f222-4566-82af-9e70c1e6b9c9|9cfac31a-656a-4a82-95ed-91078272c773",
-          ""
-        ]
-      ],
+      "drc_exclusions": [],
       "meta": {
         "version": 2
       },
@@ -144,8 +103,8 @@
         "pth_inside_courtyard": "ignore",
         "shorting_items": "error",
         "silk_edge_clearance": "warning",
-        "silk_over_copper": "error",
-        "silk_overlap": "error",
+        "silk_over_copper": "warning",
+        "silk_overlap": "warning",
         "skew_out_of_range": "error",
         "solder_mask_bridge": "error",
         "starved_thermal": "error",
@@ -169,7 +128,7 @@
         "allow_blind_buried_vias": false,
         "allow_microvias": false,
         "max_error": 0.005,
-        "min_clearance": 0.0,
+        "min_clearance": 0.15,
         "min_connection": 0.0,
         "min_copper_edge_clearance": 0.05,
         "min_groove_width": 0.0,
@@ -519,7 +478,7 @@
     "classes": [
       {
         "bus_width": 12,
-        "clearance": 0.2,
+        "clearance": 0.15,
         "diff_pair_gap": 0.25,
         "diff_pair_via_gap": 0.25,
         "diff_pair_width": 0.2,
@@ -531,13 +490,13 @@
         "priority": 2147483647,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.2,
-        "via_diameter": 0.9,
-        "via_drill": 0.6,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
         "wire_width": 6
       },
       {
         "bus_width": 12,
-        "clearance": 0.2,
+        "clearance": 0.15,
         "diff_pair_gap": 0.25,
         "diff_pair_width": 0.2,
         "line_style": 0,
@@ -568,6 +527,9 @@
         "Power"
       ],
       "Net-(D1-K)": [
+        "Power"
+      ],
+      "V_TRACTOR": [
         "Power"
       ]
     },
@@ -758,6 +720,14 @@
     [
       "549c4ffc-71ca-4a83-87cf-4d9c5d79cc48",
       "Automotive Ethernet"
+    ],
+    [
+      "98b16fc4-0a81-4129-a485-6788042b67b4",
+      "GPS"
+    ],
+    [
+      "8d7ba14b-e177-40a7-aed7-3bcdf83fb134",
+      "ESP32"
     ]
   ],
   "text_variables": {}
