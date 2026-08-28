@@ -122,10 +122,9 @@ void BleBridge::sendToClient(const String& message) {
         toSend += "\n";
     }
 
-    // Get the negotiated MTU (minus 3 bytes for ATT header)
-    uint16_t mtu = _pServer->getPeerMTU(_pServer->getConnInfo(0).getConnHandle()) - 3;
-    if (mtu < 20) mtu = 20;  // Minimum safe size
-    if (mtu > 500) mtu = 500;  // Cap at reasonable size
+    // Use a safe chunk size (default BLE MTU is 23, minus 3 for ATT header = 20)
+    // Most modern devices negotiate higher MTU, but we'll use a conservative value
+    uint16_t mtu = 200;  // Safe chunk size that works with most devices
 
     // Send in chunks if message is larger than MTU
     size_t totalLen = toSend.length();
