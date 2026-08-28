@@ -122,12 +122,30 @@ void BleBridge::sendToClient(const String& message) {
         toSend += "\n";
     }
 
-    // Send via notifications
-    // NimBLE handles chunking automatically up to MTU
-    _pResponseChar->setValue((uint8_t*)toSend.c_str(), toSend.length());
-    _pResponseChar->notify();
+    // Get the negotiated MTU (minus 3 bytes for ATT header)
+    uint16_t mtu = _pServer->getPeerMTU(_pServer->getConnInfo(0).getConnHandle()) - 3;
+    if (mtu < 20) mtu = 20;  // Minimum safe size
+    if (mtu > 500) mtu = 500;  // Cap at reasonable size
 
-    Serial.printf("[BLE] Sent to client: %d bytes\n", toSend.length());
+    // Send in chunks if message is larger than MTU
+    size_t totalLen = toSend.length();
+    size_t offset = 0;
+
+    while (offset < totalLen) {
+        size_t chunkLen = min((size_t)mtu, totalLen - offset);
+
+        _pResponseChar->setValue((uint8_t*)(toSend.c_str() + offset), chunkLen);
+        _pResponseChar->notify();
+
+        offset += chunkLen;
+
+        // Small delay between chunks to avoid BLE congestion
+        if (offset < totalLen) {
+            delay(10);
+        }
+    }
+
+    Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, (totalLen + mtu - 1) / mtu);
 }
 
 void BleBridge::onBleDataReceived(const String& data) {
