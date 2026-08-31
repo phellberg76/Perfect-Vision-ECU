@@ -141,8 +141,13 @@ update_esp32() {
 
     # Clean up serial port
     if command -v fuser &> /dev/null; then
-        sudo fuser -k "$UART_DEV" 2>/dev/null || true
-        sleep 0.5
+        sudo fuser -k "$UART_DEV" >/dev/null 2>&1 || true
+        sleep 1
+    fi
+
+    # Reset serial port to known state
+    if [ -e "$UART_DEV" ]; then
+        stty -F "$UART_DEV" 115200 cs8 -cstopb -parenb raw -echo 2>/dev/null || true
     fi
 
     enter_bootloader
@@ -150,13 +155,13 @@ update_esp32() {
     log "Flashing ESP32..."
     $ESPTOOL --chip esp32s3 \
         --port "$UART_DEV" \
-        --baud 230400 \
+        --baud 115200 \
         --before no-reset \
         --after no-reset \
         write-flash \
         -z \
         --flash-mode dio \
-        --flash-freq 80m \
+        --flash-freq 40m \
         --flash-size 8MB \
         0x0000 "$TMP_DIR/bootloader.bin" \
         0x8000 "$TMP_DIR/partitions.bin" \
