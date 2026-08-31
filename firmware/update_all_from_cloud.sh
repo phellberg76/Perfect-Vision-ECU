@@ -21,8 +21,30 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
 TMP_DIR="/tmp/planter-update"
+
+# Find esptool - check venv, system, or pipx
+FIRMWARE_DIR="/root/Raspberry-Pi-Backup-power-and-GPS-hat-v4/firmware"
+if [ -f "$FIRMWARE_DIR/.venv/bin/python" ]; then
+    ESPTOOL="$FIRMWARE_DIR/.venv/bin/python -m esptool"
+elif command -v esptool.py &> /dev/null; then
+    ESPTOOL="esptool.py"
+elif command -v esptool &> /dev/null; then
+    ESPTOOL="esptool"
+else
+    # Try to find in common locations
+    for path in ~/.local/bin/esptool /usr/local/bin/esptool /usr/bin/esptool; do
+        if [ -x "$path" ]; then
+            ESPTOOL="$path"
+            break
+        fi
+    done
+fi
+
+if [ -z "$ESPTOOL" ]; then
+    echo "Error: esptool not found. Install with: pip install esptool"
+    exit 1
+fi
 
 # Cloud server settings
 CLOUD_HOST="peter@cloud"
@@ -124,7 +146,7 @@ update_esp32() {
     enter_bootloader
 
     log "Flashing ESP32..."
-    "$VENV_DIR/bin/python" -m esptool --chip esp32s3 \
+    $ESPTOOL --chip esp32s3 \
         --port "$UART_DEV" \
         --baud 460800 \
         --before no-reset \
