@@ -148,7 +148,7 @@ update_esp32() {
     log "Flashing ESP32..."
     $ESPTOOL --chip esp32s3 \
         --port "$UART_DEV" \
-        --baud 460800 \
+        --baud 230400 \
         --before no-reset \
         --after no-reset \
         write-flash \
