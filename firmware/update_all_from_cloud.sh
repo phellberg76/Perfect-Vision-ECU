@@ -129,8 +129,9 @@ update_esp32() {
         "$TMP_DIR/" || error "Failed to fetch ESP32 firmware"
 
     # Stop services using serial port
-    log "Stopping planter-ble-bridge.service..."
+    log "Stopping services..."
     sudo systemctl stop planter-ble-bridge.service 2>/dev/null || true
+    sudo systemctl stop http-proxy.service 2>/dev/null || true
     sleep 1
 
     if pgrep -x pppd > /dev/null; then
@@ -149,6 +150,11 @@ update_esp32() {
     if [ -e "$UART_DEV" ]; then
         stty -F "$UART_DEV" 115200 cs8 -cstopb -parenb raw -echo 2>/dev/null || true
     fi
+
+    # Reset ESP32 first to get it out of PPP mode
+    log "Resetting ESP32 out of PPP mode..."
+    reset_esp32
+    sleep 0.5
 
     enter_bootloader
 
@@ -169,9 +175,12 @@ update_esp32() {
 
     reset_esp32
 
-    # Restart the bridge service
-    sleep 1
-    log "Restarting planter-ble-bridge.service..."
+    # Restart services
+    sleep 2
+    log "Restarting services..."
+    if systemctl is-enabled --quiet http-proxy.service 2>/dev/null; then
+        sudo systemctl start http-proxy.service
+    fi
     sudo systemctl start planter-ble-bridge.service 2>/dev/null || true
 
     log "ESP32 update complete!"
