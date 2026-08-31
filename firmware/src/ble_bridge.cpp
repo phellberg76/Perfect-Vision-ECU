@@ -14,6 +14,7 @@ BleBridge::BleBridge(HardwareSerial& serial)
     , _pRequestChar(nullptr)
     , _pResponseChar(nullptr)
     , _deviceConnected(false)
+    , _sendMutex(xSemaphoreCreateMutex())
 {
 }
 
@@ -116,6 +117,12 @@ void BleBridge::sendToClient(const String& message) {
         return;
     }
 
+    // Lock mutex to prevent interleaved sends from concurrent calls
+    if (xSemaphoreTake(_sendMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        Serial.println("[BLE] Failed to acquire send mutex, dropping message");
+        return;
+    }
+
     // Add newline if not present (for message framing)
     String toSend = message;
     if (!toSend.endsWith("\n")) {
@@ -145,6 +152,8 @@ void BleBridge::sendToClient(const String& message) {
     }
 
     Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, (totalLen + mtu - 1) / mtu);
+
+    xSemaphoreGive(_sendMutex);
 }
 
 void BleBridge::onBleDataReceived(const String& data) {

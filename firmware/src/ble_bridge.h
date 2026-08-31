@@ -12,6 +12,7 @@
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <freertos/semphr.h>
 
 // Service and Characteristic UUIDs (must match Flutter app)
 #define PLANTER_SERVICE_UUID        "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
@@ -54,6 +55,7 @@ private:
     NimBLECharacteristic* _pResponseChar;
     bool _deviceConnected;
     String _rxBuffer;  // Buffer for incoming UART data
+    SemaphoreHandle_t _sendMutex;  // Mutex to prevent interleaved BLE sends
 
     void setupService();
 };
