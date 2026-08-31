@@ -87,7 +87,8 @@ void setup() {
     Serial.println("\n\n=== ESP32-S3 GPS Hat v4 - BLE Bridge ===");
 
     // Initialize UART0 for RPi communication
-    RPI_Serial.setRxBufferSize(4096);
+    // Large buffer to handle BLE send delays without overflow
+    RPI_Serial.setRxBufferSize(32768);  // 32KB buffer
     RPI_Serial.begin(RPI_BAUD, SERIAL_8N1, PIN_RPI_RX, PIN_RPI_TX);
     delay(100);
 
