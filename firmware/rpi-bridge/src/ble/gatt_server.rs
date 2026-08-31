@@ -196,12 +196,10 @@ async fn run_gatt_server(
                                 writer_opt = None;
                                 let _ = event_tx.send(GattEvent::Disconnected);
                             } else {
-                                // Flush and allow BLE stack to transmit before next message.
+                                // Small delay to allow BLE stack to transmit before next message.
                                 // This prevents interleaving when large messages are fragmented
                                 // across multiple BLE notifications.
-                                let _ = writer.flush().await;
-                                // Small delay to ensure BLE transport completes
-                                tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                             }
                         } else {
                             log::warn!("No client connected, dropping message");
