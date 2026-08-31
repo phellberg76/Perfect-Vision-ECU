@@ -160,13 +160,13 @@ update_esp32() {
     log "Flashing ESP32..."
     $ESPTOOL --chip esp32s3 \
         --port "$UART_DEV" \
-        --baud 115200 \
+        --baud 460800 \
         --before no-reset \
         --after no-reset \
         write-flash \
         -z \
         --flash-mode dio \
-        --flash-freq 40m \
+        --flash-freq 80m \
         --flash-size 8MB \
         0x0000 "$TMP_DIR/bootloader.bin" \
         0x8000 "$TMP_DIR/partitions.bin" \
