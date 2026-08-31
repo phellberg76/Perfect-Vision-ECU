@@ -145,11 +145,14 @@ void BleBridge::sendToClient(const String& message) {
 
         offset += chunkLen;
 
-        // Small delay between chunks to avoid BLE congestion
+        // Delay between chunks to avoid BLE congestion
         if (offset < totalLen) {
-            delay(10);
+            delay(20);
         }
     }
+
+    // Delay after complete message to let BLE stack flush before next message
+    delay(50);
 
     Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, (totalLen + mtu - 1) / mtu);
 
