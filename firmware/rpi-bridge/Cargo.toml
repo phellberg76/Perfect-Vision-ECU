@@ -43,6 +43,9 @@ futures = "0.3"
 # Serial port for UART mode
 serialport = "4.3"
 
+# OpenSSL - vendored for cross-compilation
+openssl = { version = "0.10", features = ["vendored"] }
+
 [profile.release]
 opt-level = "z"
 lto = true

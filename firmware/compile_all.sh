@@ -68,18 +68,16 @@ build_rust() {
 
     cd "$RUST_DIR"
 
-    # Create Cross.toml if it doesn't exist
-    if [ ! -f Cross.toml ]; then
-        log "Creating Cross.toml for ARM64 cross-compilation..."
-        cat > Cross.toml << 'EOF'
+    # Create Cross.toml if it doesn't exist or update it
+    log "Creating Cross.toml for ARM64 cross-compilation..."
+    cat > Cross.toml << 'EOF'
 [target.aarch64-unknown-linux-gnu]
 pre-build = [
     "dpkg --add-architecture arm64",
     "apt-get update",
-    "apt-get install -y libdbus-1-dev:arm64 libudev-dev:arm64"
+    "apt-get install -y libdbus-1-dev:arm64 libudev-dev:arm64 libssl-dev:arm64"
 ]
 EOF
-    fi
 
     log "Cross-compiling for $TARGET..."
     "$CROSS" build --release --target "$TARGET"
