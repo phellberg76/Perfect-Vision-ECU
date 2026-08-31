@@ -43,10 +43,12 @@ gpio_set() {
     local value=$2
 
     if command -v pinctrl &> /dev/null; then
+        # Set as output first, then set value (required on some CM4s)
+        pinctrl set $pin op
         if [ "$value" = "1" ]; then
-            pinctrl set $pin op dh
+            pinctrl set $pin dh
         else
-            pinctrl set $pin op dl
+            pinctrl set $pin dl
         fi
     elif command -v gpioset &> /dev/null; then
         gpioset gpiochip0 $pin=$value
