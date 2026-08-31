@@ -83,6 +83,8 @@ fn run_uart_bridge(
 
                         if let Err(e) = write_port.write_all(msg.as_bytes()) {
                             log::error!("UART write error: {}", e);
+                        } else if let Err(e) = write_port.flush() {
+                            log::error!("UART flush error: {}", e);
                         } else {
                             log::debug!("UART sent: {} bytes", msg.len());
                         }
