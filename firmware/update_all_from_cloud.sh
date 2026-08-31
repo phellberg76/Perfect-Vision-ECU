@@ -129,9 +129,8 @@ update_esp32() {
         "$TMP_DIR/" || error "Failed to fetch ESP32 firmware"
 
     # Stop services using serial port
-    log "Stopping services..."
+    log "Stopping planter-ble-bridge.service..."
     sudo systemctl stop planter-ble-bridge.service 2>/dev/null || true
-    sudo systemctl stop http-proxy.service 2>/dev/null || true
     sleep 1
 
     if pgrep -x pppd > /dev/null; then
@@ -175,12 +174,9 @@ update_esp32() {
 
     reset_esp32
 
-    # Restart services
+    # Restart service
     sleep 2
-    log "Restarting services..."
-    if systemctl is-enabled --quiet http-proxy.service 2>/dev/null; then
-        sudo systemctl start http-proxy.service
-    fi
+    log "Restarting planter-ble-bridge.service..."
     sudo systemctl start planter-ble-bridge.service 2>/dev/null || true
 
     log "ESP32 update complete!"
