@@ -19,8 +19,13 @@ echo ""
 
 # Check for PlatformIO
 if ! command -v pio &> /dev/null; then
-    echo "PlatformIO not found. Installing..."
-    pip install platformio
+    echo "PlatformIO not found. Installing via pipx..."
+    if ! command -v pipx &> /dev/null; then
+        sudo apt install -y pipx
+        pipx ensurepath
+    fi
+    pipx install platformio
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 
 # Compile

@@ -36,8 +36,13 @@ build_esp32() {
 
     # Check for PlatformIO
     if ! command -v pio &> /dev/null; then
-        log "Installing PlatformIO..."
-        pip install platformio
+        log "Installing PlatformIO via pipx..."
+        if ! command -v pipx &> /dev/null; then
+            sudo apt install -y pipx
+            pipx ensurepath
+        fi
+        pipx install platformio
+        export PATH="$HOME/.local/bin:$PATH"
     fi
 
     cd "$SCRIPT_DIR"
