@@ -129,11 +129,12 @@ update_esp32() {
         "$TMP_DIR/" || error "Failed to fetch ESP32 firmware"
 
     # Stop services using serial port
-    if systemctl is-active --quiet planter-ble-bridge.service 2>/dev/null; then
-        log "Stopping planter-ble-bridge.service..."
-        sudo systemctl stop planter-ble-bridge.service
-    fi
+    log "Stopping planter-ble-bridge.service..."
+    sudo systemctl stop planter-ble-bridge.service 2>/dev/null || true
+    sleep 1
+
     if pgrep -x pppd > /dev/null; then
+        log "Stopping pppd..."
         sudo killall pppd 2>/dev/null || true
         sleep 1
     fi
@@ -141,6 +142,7 @@ update_esp32() {
     # Clean up serial port
     if command -v fuser &> /dev/null; then
         sudo fuser -k "$UART_DEV" 2>/dev/null || true
+        sleep 0.5
     fi
 
     enter_bootloader
@@ -161,6 +163,12 @@ update_esp32() {
         0x10000 "$TMP_DIR/firmware.bin"
 
     reset_esp32
+
+    # Restart the bridge service
+    sleep 1
+    log "Restarting planter-ble-bridge.service..."
+    sudo systemctl start planter-ble-bridge.service 2>/dev/null || true
+
     log "ESP32 update complete!"
 }
 
