@@ -91,7 +91,7 @@ void BleBridge::processUart() {
     }
 
     // Prevent buffer overflow (increased to handle large responses)
-    if (_rxBuffer.length() > 32768) {
+    if (_rxBuffer.length() > 8192) {
         Serial.println("[BLE] UART buffer overflow, clearing");
         _rxBuffer = "";
     }
