@@ -90,8 +90,8 @@ void BleBridge::processUart() {
         }
     }
 
-    // Prevent buffer overflow (increased to handle large responses)
-    if (_rxBuffer.length() > 8192) {
+    // Prevent buffer overflow
+    if (_rxBuffer.length() > 4096) {
         Serial.println("[BLE] UART buffer overflow, clearing");
         _rxBuffer = "";
     }
@@ -150,9 +150,6 @@ void BleBridge::sendToClient(const String& message) {
             delay(10);
         }
     }
-
-    // Delay after complete message to let BLE stack flush before next message
-    delay(20);
 
     Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, (totalLen + mtu - 1) / mtu);
 
