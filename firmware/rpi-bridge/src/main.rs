@@ -11,13 +11,19 @@
 //!
 //! Architecture (BLE mode - legacy):
 //!   Flutter App <--BLE GATT--> This Bridge <--HTTP--> Java Backend
+//!
+//! ESP32 State:
+//!   The bridge caches GPS and WiFi state from ESP32 and handles these requests
+//!   directly without proxying to the Java backend.
 
 mod ble;
+mod esp32_state;
 mod http_proxy;
 mod uart_bridge;
 
 use ble::{spawn_gatt_server, AppRequest, BridgeResponse, GattCommand, GattEvent};
 use clap::Parser;
+use esp32_state::{Esp32Message, SharedEsp32State};
 use http_proxy::HttpProxy;
 use std::sync::mpsc;
 use uart_bridge::{spawn_uart_bridge, UartCommand, UartEvent};
@@ -62,8 +68,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Planter BLE Bridge v{}", env!("CARGO_PKG_VERSION"));
     log::info!("Backend URL: {}", args.backend);
 
-    // Create HTTP proxy
-    let proxy = HttpProxy::new(&args.backend, &args.name)?;
+    // Create shared ESP32 state
+    let esp32_state = SharedEsp32State::new();
+
+    // Create HTTP proxy with ESP32 state for intercepting WiFi/GPS requests
+    let proxy = HttpProxy::new(&args.backend, &args.name, esp32_state.clone())?;
 
     // Check backend health
     if proxy.check_health().await {
@@ -86,9 +95,15 @@ async fn run_uart_mode(
     log::info!("Running in UART mode");
     log::info!("UART port: {} @ {} baud", args.port, args.baud);
 
+    // Get ESP32 state from proxy
+    let esp32_state = proxy.esp32_state();
+
     // Create channels for UART communication
     let (event_tx, event_rx) = mpsc::channel::<UartEvent>();
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<UartCommand>(100);
+
+    // Store command_tx in proxy for sending commands to ESP32
+    proxy.set_uart_tx(command_tx.clone());
 
     // Spawn UART bridge
     let _uart_thread = spawn_uart_bridge(args.port.clone(), args.baud, event_tx, command_rx);
@@ -106,10 +121,16 @@ async fn run_uart_mode(
                     UartEvent::MessageReceived(message) => {
                         log::debug!("Received: {}", message);
 
-                        // Parse request
+                        // First, try to parse as ESP32 state message (GPS, WiFi, heartbeat, etc.)
+                        if let Ok(esp32_msg) = serde_json::from_str::<Esp32Message>(&message) {
+                            handle_esp32_message(&esp32_state, esp32_msg);
+                            continue;
+                        }
+
+                        // Otherwise, parse as app request and proxy to backend
                         match serde_json::from_str::<AppRequest>(&message) {
                             Ok(request) => {
-                                // Handle request
+                                // Handle request (may be intercepted for WiFi/GPS)
                                 let responses = proxy.handle_request(request).await;
 
                                 // Send responses back via UART
@@ -129,15 +150,8 @@ async fn run_uart_mode(
                                 }
                             }
                             Err(e) => {
-                                log::error!("Failed to parse request: {}", e);
-                                log::debug!("Raw message: {}", message);
-
-                                // Send error response
-                                let error =
-                                    BridgeResponse::error(0, "parse_error", &e.to_string());
-                                if let Ok(json) = serde_json::to_string(&error) {
-                                    let _ = command_tx.send(UartCommand::Send(json)).await;
-                                }
+                                // Not a recognized message format - could be debug output
+                                log::trace!("Unrecognized message: {} ({})", message, e);
                             }
                         }
                     }
@@ -162,12 +176,76 @@ async fn run_uart_mode(
     Ok(())
 }
 
+/// Handle messages from ESP32 (GPS, WiFi status, etc.)
+fn handle_esp32_message(state: &SharedEsp32State, msg: Esp32Message) {
+    match msg {
+        Esp32Message::Gps(gps) => {
+            log::debug!(
+                "GPS update: fix={}, sats={}, lat={:?}, lng={:?}",
+                gps.fix,
+                gps.sats,
+                gps.lat,
+                gps.lng
+            );
+            state.update_gps(gps);
+        }
+        Esp32Message::Wifi(wifi) => {
+            log::info!(
+                "WiFi update: connected={}, ssid={:?}, ip={:?}",
+                wifi.connected,
+                wifi.ssid,
+                wifi.ip
+            );
+            state.update_wifi(wifi);
+        }
+        Esp32Message::WifiConfigAck { status, msg } => {
+            log::info!("WiFi config ack: status={}, msg={:?}", status, msg);
+        }
+        Esp32Message::Heartbeat {
+            uptime,
+            gps_fix,
+            sats,
+            ble_connected,
+            wifi_connected,
+        } => {
+            log::debug!(
+                "Heartbeat: uptime={}s, gps_fix={}, sats={:?}, ble={}, wifi={:?}",
+                uptime,
+                gps_fix,
+                sats,
+                ble_connected,
+                wifi_connected
+            );
+        }
+        Esp32Message::Boot { msg } => {
+            log::info!("ESP32 boot: {}", msg);
+        }
+        Esp32Message::Init { step } => {
+            log::info!("ESP32 init: {}", step);
+        }
+        Esp32Message::Startup {
+            device,
+            version,
+            mode,
+        } => {
+            log::info!("ESP32 startup: {} v{} ({})", device, version, mode);
+        }
+        Esp32Message::Ready { ble } => {
+            log::info!("ESP32 ready: ble={}", ble);
+        }
+        Esp32Message::Error { msg } => {
+            log::error!("ESP32 error: {}", msg);
+        }
+    }
+}
+
 async fn run_ble_mode(
     args: Args,
     proxy: HttpProxy,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Running in BLE mode (legacy)");
     log::info!("Device name: {}", args.name);
+    log::warn!("BLE mode does not support ESP32 WiFi/GPS - use UART mode instead");
 
     // Create channels for GATT server communication
     let (event_tx, event_rx) = mpsc::channel::<GattEvent>();
