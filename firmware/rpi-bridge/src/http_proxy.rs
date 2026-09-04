@@ -295,6 +295,12 @@ impl HttpProxy {
             return Some(self.handle_wifi_status(req.id).await);
         }
 
+        // WiFi scan request
+        if path.contains("/scanWifi") {
+            log::info!("[{}] Intercepting scanWifi", req.id);
+            return Some(self.handle_wifi_scan(req.id).await);
+        }
+
         // WiFi configuration request
         if path.contains("/configureWifi") {
             log::info!("[{}] Intercepting configureWifi", req.id);
@@ -403,6 +409,88 @@ impl HttpProxy {
 
         json.push('}');
         json
+    }
+
+    /// Handle WiFi scan request - returns list of available networks
+    async fn handle_wifi_scan(&self, id: u32) -> BridgeResponse {
+        log::info!("Scanning for WiFi networks...");
+
+        // Trigger a rescan first
+        let _ = tokio::process::Command::new("nmcli")
+            .args(["dev", "wifi", "rescan"])
+            .output()
+            .await;
+
+        // Small delay to let scan complete
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Get list of networks
+        // Format: IN-USE:SSID:SIGNAL:SECURITY
+        let output = tokio::process::Command::new("nmcli")
+            .args(["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list"])
+            .output()
+            .await;
+
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut networks: Vec<serde_json::Value> = Vec::new();
+                let mut seen_ssids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() >= 4 {
+                        let in_use = parts[0] == "*";
+                        let ssid = parts[1].to_string();
+                        let signal: i32 = parts[2].parse().unwrap_or(0);
+                        let security = parts[3].to_string();
+
+                        // Skip empty SSIDs and duplicates
+                        if ssid.is_empty() || seen_ssids.contains(&ssid) {
+                            continue;
+                        }
+                        seen_ssids.insert(ssid.clone());
+
+                        // Convert signal percentage to dBm approximation
+                        let rssi = -90 + (signal * 60 / 100);
+
+                        networks.push(serde_json::json!({
+                            "ssid": ssid,
+                            "signal": signal,
+                            "rssi": rssi,
+                            "secured": !security.is_empty() && security != "--",
+                            "inUse": in_use
+                        }));
+                    }
+                }
+
+                // Sort by signal strength (strongest first)
+                networks.sort_by(|a, b| {
+                    let sig_a = a["signal"].as_i64().unwrap_or(0);
+                    let sig_b = b["signal"].as_i64().unwrap_or(0);
+                    sig_b.cmp(&sig_a)
+                });
+
+                log::info!("Found {} WiFi networks", networks.len());
+
+                let body = serde_json::json!({ "networks": networks }).to_string();
+                BridgeResponse::Http(HttpResponse {
+                    id,
+                    status: 200,
+                    body,
+                    content_type: Some("application/json".to_string()),
+                })
+            }
+            Err(e) => {
+                log::error!("WiFi scan failed: {}", e);
+                BridgeResponse::Http(HttpResponse {
+                    id,
+                    status: 500,
+                    body: r#"{"error":"WiFi scan failed"}"#.to_string(),
+                    content_type: Some("application/json".to_string()),
+                })
+            }
+        }
     }
 
     /// Handle WiFi configure request - configures RPi WiFi using nmcli
