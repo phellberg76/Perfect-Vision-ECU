@@ -55,13 +55,9 @@ impl HttpProxy {
     }
 
     /// Set the UART command sender for sending commands to ESP32
-    pub fn set_uart_tx(&self, tx: mpsc::Sender<UartCommand>) {
-        // Use blocking lock since this is called once at startup
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(async {
-            let mut guard = self.uart_tx.write().await;
-            *guard = Some(tx);
-        });
+    pub async fn set_uart_tx(&self, tx: mpsc::Sender<UartCommand>) {
+        let mut guard = self.uart_tx.write().await;
+        *guard = Some(tx);
     }
 
     /// Send a command to ESP32 via UART

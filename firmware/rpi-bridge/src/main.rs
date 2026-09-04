@@ -103,7 +103,7 @@ async fn run_uart_mode(
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<UartCommand>(100);
 
     // Store command_tx in proxy for sending commands to ESP32
-    proxy.set_uart_tx(command_tx.clone());
+    proxy.set_uart_tx(command_tx.clone()).await;
 
     // Spawn UART bridge
     let _uart_thread = spawn_uart_bridge(args.port.clone(), args.baud, event_tx, command_rx);
