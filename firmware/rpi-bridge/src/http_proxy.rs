@@ -1,13 +1,14 @@
 //! HTTP Proxy for Java Backend
 //!
 //! Forwards HTTP requests to the Java planter app running on localhost.
-//! Intercepts WiFi and GPS requests to handle them directly via ESP32.
+//! Intercepts WiFi requests to handle them directly on the RPi via nmcli.
+//! Intercepts GPS requests to return cached data from ESP32.
 
 use crate::ble::protocol::{
     AppRequest, BridgeResponse, FileChunk, FileMetaResponse, HttpRequest, HttpResponse,
     InfoResponse,
 };
-use crate::esp32_state::{Esp32Command, SharedEsp32State, WifiState};
+use crate::esp32_state::{Esp32Command, SharedEsp32State};
 use crate::uart_bridge::UartCommand;
 use reqwest::Client;
 use std::path::Path;
@@ -18,9 +19,6 @@ use tokio::sync::{mpsc, RwLock};
 /// HTTP client configuration
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const FILE_CHUNK_SIZE: usize = 32 * 1024; // 32KB chunks for file transfers
-
-/// How fresh WiFi data needs to be before we request an update
-const WIFI_DATA_MAX_AGE: Duration = Duration::from_secs(10);
 
 /// HTTP Proxy to Java backend
 pub struct HttpProxy {
@@ -312,58 +310,102 @@ impl HttpProxy {
         None
     }
 
-    /// Handle WiFi status request
+    /// Handle WiFi status request - returns RPi's WiFi status
     async fn handle_wifi_status(&self, id: u32) -> BridgeResponse {
-        // Check if we have fresh WiFi data
-        if !self.esp32_state.is_wifi_fresh(WIFI_DATA_MAX_AGE) {
-            // Request fresh data from ESP32
-            self.send_esp32_command(Esp32Command::WifiStatus).await;
-
-            // Wait a bit for the response
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-
-        // Get cached WiFi state
-        match self.esp32_state.get_wifi() {
-            Some(wifi) => {
-                let json = self.wifi_state_to_json(&wifi);
-                BridgeResponse::Http(HttpResponse {
-                    id,
-                    status: 200,
-                    body: json,
-                    content_type: Some("application/json".to_string()),
-                })
-            }
-            None => BridgeResponse::Http(HttpResponse {
-                id,
-                status: 200,
-                body: r#"{"connected":false,"configured":false}"#.to_string(),
-                content_type: Some("application/json".to_string()),
-            }),
-        }
+        let wifi_status = self.get_rpi_wifi_status().await;
+        BridgeResponse::Http(HttpResponse {
+            id,
+            status: 200,
+            body: wifi_status,
+            content_type: Some("application/json".to_string()),
+        })
     }
 
-    /// Convert WiFi state to JSON response (matching Java endpoint format)
-    fn wifi_state_to_json(&self, wifi: &WifiState) -> String {
-        let mut json = format!(r#"{{"connected":{}"#, wifi.connected);
+    /// Get RPi WiFi status using nmcli
+    async fn get_rpi_wifi_status(&self) -> String {
+        // Get active connection info
+        let connection = tokio::process::Command::new("nmcli")
+            .args(["-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"])
+            .output()
+            .await;
 
-        if let Some(ref ssid) = wifi.ssid {
-            json.push_str(&format!(r#","ssid":"{}""#, ssid));
+        let mut connected = false;
+        let mut ssid: Option<String> = None;
+        let mut device: Option<String> = None;
+
+        if let Ok(output) = connection {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                // Format: NAME:TYPE:DEVICE
+                if parts.len() >= 3 && parts[1] == "802-11-wireless" {
+                    connected = true;
+                    ssid = Some(parts[0].to_string());
+                    device = Some(parts[2].to_string());
+                    break;
+                }
+            }
         }
 
-        if let Some(ref ip) = wifi.ip {
-            json.push_str(&format!(r#","ip":"{}""#, ip));
+        if !connected {
+            return r#"{"connected":false}"#.to_string();
         }
 
-        if let Some(rssi) = wifi.rssi {
-            json.push_str(&format!(r#","rssi":{}"#, rssi));
+        let mut json = format!(r#"{{"connected":true"#);
+
+        if let Some(ref s) = ssid {
+            json.push_str(&format!(r#","ssid":"{}""#, s));
+        }
+
+        // Get IP address
+        if let Some(ref dev) = device {
+            if let Ok(output) = tokio::process::Command::new("nmcli")
+                .args(["-t", "-f", "IP4.ADDRESS", "device", "show", dev])
+                .output()
+                .await
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.starts_with("IP4.ADDRESS") {
+                        if let Some(addr) = line.split(':').nth(1) {
+                            // Remove CIDR notation (e.g., /24)
+                            let ip = addr.split('/').next().unwrap_or(addr);
+                            json.push_str(&format!(r#","ip":"{}""#, ip));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Get signal strength
+            if let Ok(output) = tokio::process::Command::new("nmcli")
+                .args(["-t", "-f", "IN-USE,SIGNAL", "dev", "wifi", "list"])
+                .output()
+                .await
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.starts_with('*') {
+                        // Active connection marked with *
+                        if let Some(signal) = line.split(':').nth(1) {
+                            if let Ok(pct) = signal.parse::<i32>() {
+                                // Convert percentage to approximate dBm
+                                // 100% ≈ -30dBm, 0% ≈ -90dBm
+                                let rssi = -90 + (pct * 60 / 100);
+                                json.push_str(&format!(r#","rssi":{}"#, rssi));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         json.push('}');
         json
     }
 
-    /// Handle WiFi configure request
+    /// Handle WiFi configure request - configures RPi WiFi using nmcli
     async fn handle_wifi_configure(&self, id: u32, path: &str) -> BridgeResponse {
         // Parse query parameters from path
         let (ssid, password) = self.parse_wifi_params(path);
@@ -372,30 +414,61 @@ impl HttpProxy {
             Some(ssid) => {
                 let password = password.unwrap_or_default();
 
-                log::info!("Configuring WiFi: ssid={}", ssid);
+                log::info!("Configuring RPi WiFi: ssid={}", ssid);
 
-                // Send configuration command to ESP32
-                let success = self
-                    .send_esp32_command(Esp32Command::WifiConfig {
-                        ssid: ssid.clone(),
-                        password,
-                    })
+                // Try to connect using nmcli
+                // First, try to delete any existing connection with this SSID
+                let _ = tokio::process::Command::new("nmcli")
+                    .args(["connection", "delete", &ssid])
+                    .output()
                     .await;
 
-                if success {
-                    BridgeResponse::Http(HttpResponse {
-                        id,
-                        status: 200,
-                        body: r#"{"status":"WiFi configuration sent"}"#.to_string(),
-                        content_type: Some("application/json".to_string()),
-                    })
+                // Create new connection and connect
+                let result = if password.is_empty() {
+                    // Open network
+                    tokio::process::Command::new("nmcli")
+                        .args(["device", "wifi", "connect", &ssid])
+                        .output()
+                        .await
                 } else {
-                    BridgeResponse::Http(HttpResponse {
-                        id,
-                        status: 503,
-                        body: r#"{"error":"Failed to send WiFi configuration"}"#.to_string(),
-                        content_type: Some("application/json".to_string()),
-                    })
+                    // WPA/WPA2 network
+                    tokio::process::Command::new("nmcli")
+                        .args(["device", "wifi", "connect", &ssid, "password", &password])
+                        .output()
+                        .await
+                };
+
+                match result {
+                    Ok(output) => {
+                        if output.status.success() {
+                            log::info!("WiFi connected to {}", ssid);
+                            BridgeResponse::Http(HttpResponse {
+                                id,
+                                status: 200,
+                                body: format!(r#"{{"status":"connected","ssid":"{}"}}"#, ssid),
+                                content_type: Some("application/json".to_string()),
+                            })
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            log::error!("WiFi connection failed: {}", stderr);
+                            BridgeResponse::Http(HttpResponse {
+                                id,
+                                status: 500,
+                                body: format!(r#"{{"error":"Connection failed: {}"}}"#,
+                                    stderr.lines().next().unwrap_or("Unknown error")),
+                                content_type: Some("application/json".to_string()),
+                            })
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to run nmcli: {}", e);
+                        BridgeResponse::Http(HttpResponse {
+                            id,
+                            status: 503,
+                            body: r#"{"error":"Failed to configure WiFi"}"#.to_string(),
+                            content_type: Some("application/json".to_string()),
+                        })
+                    }
                 }
             }
             None => BridgeResponse::Http(HttpResponse {
