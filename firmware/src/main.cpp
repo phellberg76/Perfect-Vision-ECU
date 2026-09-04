@@ -423,7 +423,7 @@ void processUartCommands() {
         char c = RPI_Serial.read();
 
         if (c == '\n') {
-            // Complete command received
+            // Complete message received
             uartCmdBuffer.trim();
             if (uartCmdBuffer.length() > 0 && uartCmdBuffer.startsWith("{")) {
                 handleUartCommand(uartCmdBuffer);
@@ -432,8 +432,9 @@ void processUartCommands() {
         } else {
             uartCmdBuffer += c;
 
-            // Prevent buffer overflow
-            if (uartCmdBuffer.length() > 512) {
+            // Prevent buffer overflow (32KB to handle large HTTP responses)
+            if (uartCmdBuffer.length() > 32768) {
+                Serial.println("[UART] Buffer overflow, clearing");
                 uartCmdBuffer = "";
             }
         }
@@ -441,6 +442,19 @@ void processUartCommands() {
 }
 
 void handleUartCommand(const String& cmdJson) {
+    // Quick check: if this doesn't look like a command, forward it to BLE
+    // Commands from RPi bridge have "cmd" field, responses have "id" field
+    if (cmdJson.indexOf("\"cmd\":") < 0) {
+        // Not a command - this is a BLE response from the RPi bridge
+        // Forward it to the BLE client
+        if (bleBridge.isConnected()) {
+            Serial.printf("[UART->BLE] Forwarding response: %d bytes\n", cmdJson.length());
+            bleBridge.sendToClient(cmdJson);
+        }
+        return;
+    }
+
+    // Parse the command JSON (small buffer is fine for commands)
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, cmdJson);
 
@@ -451,7 +465,6 @@ void handleUartCommand(const String& cmdJson) {
 
     const char* cmd = doc["cmd"];
     if (cmd == nullptr) {
-        // Not a command, might be a BLE message to forward - ignore
         return;
     }
 
