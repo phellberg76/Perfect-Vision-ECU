@@ -119,6 +119,30 @@ async fn run_uart_mode(
 
     log::info!("UART bridge started, waiting for messages from ESP32...");
 
+    // Spawn UART heartbeat task to keep ESP32 watchdog happy
+    // Only sends heartbeat if Java backend is reachable (confirms whole stack is healthy)
+    let heartbeat_tx = command_tx.clone();
+    let heartbeat_proxy = proxy.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+
+            // Check if Java backend is responding before sending heartbeat
+            // This ensures we only pet the watchdog when the whole stack is healthy
+            if heartbeat_proxy.check_health().await {
+                let heartbeat_cmd = r#"{"cmd":"wdt_pet"}"#.to_string();
+                if let Err(e) = heartbeat_tx.send(UartCommand::Send(heartbeat_cmd)).await {
+                    log::error!("Failed to send UART heartbeat: {}", e);
+                    break;
+                }
+                log::trace!("UART heartbeat sent to ESP32 (backend healthy)");
+            } else {
+                log::warn!("Skipping UART heartbeat - Java backend not responding");
+            }
+        }
+    });
+
     // Main event loop
     loop {
         match event_rx.try_recv() {
