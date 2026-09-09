@@ -131,18 +131,23 @@ async fn run_uart_mode(
                         if let Ok(esp32_msg) = serde_json::from_str::<Esp32Message>(&message) {
                             // Forward GPS to Java backend for fallback speed
                             if let Esp32Message::Gps(ref gps) = esp32_msg {
+                                log::info!(
+                                    "Forwarding GPS to Java: fix={}, sats={}, lat={:?}, lng={:?}, speed={:?}",
+                                    gps.fix, gps.sats, gps.lat, gps.lng, gps.speed
+                                );
                                 let client = gps_forward_client.clone();
                                 let url = format!("{}/updateGpsFromBridge", backend_url);
                                 let gps_json = serde_json::to_string(gps).unwrap_or_default();
                                 tokio::spawn(async move {
-                                    if let Err(e) = client
+                                    match client
                                         .post(&url)
                                         .header("Content-Type", "application/json")
                                         .body(gps_json)
                                         .send()
                                         .await
                                     {
-                                        log::trace!("Failed to forward GPS to Java: {}", e);
+                                        Ok(resp) => log::debug!("GPS forward response: {}", resp.status()),
+                                        Err(e) => log::warn!("Failed to forward GPS to Java: {}", e),
                                     }
                                 });
                             }
