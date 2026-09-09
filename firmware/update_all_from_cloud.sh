@@ -237,11 +237,18 @@ update_esp32() {
         return 0
     fi
 
-    log "ESP32 firmware changed, downloading..."
+    log "ESP32 firmware changed, downloading all binaries..."
+    # Download all 3 files since flashing requires all of them
     for file in bootloader.bin partitions.bin firmware.bin; do
-        smart_scp "$CLOUD_ESP32_DIR/$file" "$TMP_DIR/$file" "esp32_$file" || {
-            [ $? -eq 2 ] || error "Failed to fetch $file"
-        }
+        log "Downloading $file..."
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_ESP32_DIR/$file" "$TMP_DIR/$file" \
+            || error "Failed to fetch $file"
+    done
+
+    # Update hash cache for all files after successful download
+    for file in bootloader.bin partitions.bin firmware.bin; do
+        local new_hash=$(get_local_hash "$TMP_DIR/$file")
+        save_hash_cache "esp32_$file" "$new_hash"
     done
 
     # Stop services using serial port
