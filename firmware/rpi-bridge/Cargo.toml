@@ -1,6 +1,6 @@
 [package]
 name = "planter-ble-bridge"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 authors = ["Perfect Precision PCB Designs"]
 description = "BLE to HTTP bridge for Planter App - proxies BLE requests to Java backend"

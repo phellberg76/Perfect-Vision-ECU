@@ -95,6 +95,9 @@ async fn run_uart_mode(
     log::info!("Running in UART mode");
     log::info!("UART port: {} @ {} baud", args.port, args.baud);
 
+    // Wrap proxy in Arc for sharing across async tasks
+    let proxy = std::sync::Arc::new(proxy);
+
     // Get ESP32 state from proxy
     let esp32_state = proxy.esp32_state();
 
@@ -162,24 +165,30 @@ async fn run_uart_mode(
                         // Otherwise, parse as app request and proxy to backend
                         match serde_json::from_str::<AppRequest>(&message) {
                             Ok(request) => {
-                                // Handle request (may be intercepted for WiFi/GPS)
-                                let responses = proxy.handle_request(request).await;
+                                // Spawn HTTP request handling as separate task to not block main loop
+                                // This allows GPS messages to be processed while HTTP requests are pending
+                                let proxy_clone = proxy.clone();
+                                let command_tx_clone = command_tx.clone();
+                                tokio::spawn(async move {
+                                    // Handle request (may be intercepted for WiFi/GPS)
+                                    let responses = proxy_clone.handle_request(request).await;
 
-                                // Send responses back via UART
-                                for response in responses {
-                                    match serde_json::to_string(&response) {
-                                        Ok(json) => {
-                                            if let Err(e) =
-                                                command_tx.send(UartCommand::Send(json)).await
-                                            {
-                                                log::error!("Failed to send response: {}", e);
+                                    // Send responses back via UART
+                                    for response in responses {
+                                        match serde_json::to_string(&response) {
+                                            Ok(json) => {
+                                                if let Err(e) =
+                                                    command_tx_clone.send(UartCommand::Send(json)).await
+                                                {
+                                                    log::error!("Failed to send response: {}", e);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                log::error!("Failed to serialize response: {}", e);
                                             }
                                         }
-                                        Err(e) => {
-                                            log::error!("Failed to serialize response: {}", e);
-                                        }
                                     }
-                                }
+                                });
                             }
                             Err(e) => {
                                 // Not a recognized message format - could be debug output
