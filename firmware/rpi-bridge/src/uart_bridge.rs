@@ -117,6 +117,12 @@ fn run_uart_bridge(
                         || trimmed.starts_with("{\"type\":\"heartbeat\"")
                     {
                         log::debug!("ESP32: {}", trimmed);
+                    } else if trimmed.starts_with("{\"type\":\"gps\"") {
+                        log::info!("UART GPS message received: {}", &trimmed[..std::cmp::min(80, trimmed.len())]);
+                        let _ = event_tx.send(UartEvent::MessageReceived(trimmed));
+                    } else if trimmed.starts_with("{\"type\":\"wifi\"") {
+                        log::info!("UART WiFi message received");
+                        let _ = event_tx.send(UartEvent::MessageReceived(trimmed));
                     } else {
                         log::debug!("UART received: {}", trimmed);
                         let _ = event_tx.send(UartEvent::MessageReceived(trimmed));

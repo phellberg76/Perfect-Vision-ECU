@@ -125,10 +125,14 @@ async fn run_uart_mode(
                         log::info!("UART ready: {}", port);
                     }
                     UartEvent::MessageReceived(message) => {
-                        log::debug!("Received: {}", message);
+                        // Log all non-HTTP messages at info level for debugging
+                        if !message.contains("\"type\":\"http\"") {
+                            log::info!("UART non-HTTP message: {}", message);
+                        }
 
                         // First, try to parse as ESP32 state message (GPS, WiFi, heartbeat, etc.)
                         if let Ok(esp32_msg) = serde_json::from_str::<Esp32Message>(&message) {
+                            log::info!("Parsed as Esp32Message: {:?}", esp32_msg);
                             // Forward GPS to Java backend for fallback speed
                             if let Esp32Message::Gps(ref gps) = esp32_msg {
                                 log::info!(
