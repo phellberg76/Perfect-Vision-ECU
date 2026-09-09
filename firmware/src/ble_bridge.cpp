@@ -72,34 +72,12 @@ void BleBridge::setupService() {
 }
 
 void BleBridge::processUart() {
-    // Read incoming data from RPi - process ONE message per call
-    // This allows the main loop to run between messages, giving the
-    // BLE stack time to transmit before we send the next message
-    bool messageSent = false;
-
-    while (_serial.available() && !messageSent) {
-        char c = _serial.read();
-        _rxBuffer += c;
-
-        // Check for complete message (newline-delimited JSON)
-        if (c == '\n') {
-            String message = _rxBuffer;
-            message.trim();
-            _rxBuffer = "";
-
-            if (message.length() > 0) {
-                // Forward to BLE client
-                sendToClient(message);
-                messageSent = true;  // Only send one message per call
-            }
-        }
-    }
-
-    // Prevent buffer overflow (increased to handle large responses)
-    if (_rxBuffer.length() > 32768) {
-        Serial.println("[BLE] UART buffer overflow, clearing");
-        _rxBuffer = "";
-    }
+    // NOTE: UART reading is now handled by processUartCommands() in main.cpp
+    // to avoid two code paths reading from the same serial port.
+    // Messages are forwarded to BLE via sendToClient() from handleUartCommand().
+    //
+    // This function is kept for future use if needed, but currently does nothing.
+    // The mutex in sendToClient() ensures proper serialization of BLE writes.
 }
 
 void BleBridge::process() {
@@ -153,17 +131,19 @@ void BleBridge::sendToClient(const String& message) {
         chunkCount++;
 
         // Delay between chunks to let BLE stack transmit
-        // Longer delay ensures chunk is actually sent before queuing next
-        delay(20);
+        // NimBLE notify() queues data asynchronously - we need to give
+        // enough time for actual transmission before sending next chunk
+        delay(30);
 
         // Yield to let BLE stack process
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    // Significant delay after complete message to ensure BLE stack has
-    // transmitted all chunks before we allow the next message to start
-    delay(50);
-    vTaskDelay(pdMS_TO_TICKS(50));
+    // Critical: Wait for complete message transmission before releasing mutex
+    // This prevents interleaving when multiple HTTP responses arrive rapidly
+    // The BLE stack needs time to fully transmit all queued notifications
+    delay(100);
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, chunkCount);
 
