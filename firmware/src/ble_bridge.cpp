@@ -131,19 +131,15 @@ void BleBridge::sendToClient(const String& message) {
         chunkCount++;
 
         // Delay between chunks to let BLE stack transmit
-        // NimBLE notify() queues data asynchronously - we need to give
-        // enough time for actual transmission before sending next chunk
-        delay(30);
-
-        // Yield to let BLE stack process
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // Reduced delays to allow main loop to process GPS more frequently
+        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    // Critical: Wait for complete message transmission before releasing mutex
-    // This prevents interleaving when multiple HTTP responses arrive rapidly
-    // The BLE stack needs time to fully transmit all queued notifications
-    delay(100);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // Brief delay after message to let BLE stack finish
+    // Reduced from 200ms to allow GPS to be sent more frequently
+    delay(20);
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, chunkCount);
 
