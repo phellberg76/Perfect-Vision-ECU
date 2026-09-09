@@ -32,6 +32,7 @@
 #include <TinyGPSPlus.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <esp_task_wdt.h>
 #include "ble_bridge.h"
 
 // =============================================================================
@@ -50,6 +51,11 @@
 // Status LED
 #define PIN_LED       46   // Active HIGH - indicates healthy operation
 
+// Watchdog pins (RPi GPIO connections)
+// For full reset: jumper RPi GPIO6 to GLOBAL_EN on CM4 IO Board J2 pin 1
+#define PIN_WDT_HEARTBEAT  3   // ESP32 IO3 <- RPi GPIO5 (heartbeat input, 10k pull-up)
+#define PIN_WDT_RESET      4   // ESP32 IO4 -> RPi GPIO6 -> GLOBAL_EN (reset output)
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -61,6 +67,14 @@
 #define HEARTBEAT_MS       5000
 #define WIFI_CONNECT_TIMEOUT_MS  15000
 #define BLE_DEVICE_NAME    "PerfectPrecisionPlanter"
+
+// Watchdog settings (for monitoring RPi)
+#define WDT_TIMEOUT_MS         30000   // 30 seconds without heartbeat triggers reset
+#define WDT_RESET_PULSE_MS     200     // Reset pulse duration
+#define WDT_STARTUP_GRACE_MS   60000   // 60 second grace period after boot/reset
+
+// ESP32 hardware watchdog (self-monitoring)
+#define ESP32_WDT_TIMEOUT_S    10      // 10 seconds - reset ESP32 if main loop hangs
 
 // WiFi credentials storage key
 #define WIFI_PREFS_NAMESPACE  "wifi"
@@ -85,6 +99,14 @@ unsigned long lastGpsUpdate = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastWifiUpdate = 0;
 unsigned long bootTime = 0;
+
+// Watchdog State
+volatile unsigned long lastWdtPulse = 0;    // Last time heartbeat changed
+volatile bool lastWdtState = false;          // Last heartbeat GPIO state
+bool wdtEnabled = true;                      // Watchdog enabled
+bool wdtTriggered = false;                   // Has watchdog triggered a reset?
+unsigned long wdtResetTime = 0;              // Time of last reset
+int wdtResetCount = 0;                       // Number of resets since power on
 
 // WiFi State
 bool wifiConfigured = false;
@@ -117,6 +139,11 @@ void disconnectWifi();
 void processUartCommands();
 void handleUartCommand(const String& cmd);
 void sendHeartbeat();
+void setupWatchdog();
+void processWatchdog();
+void triggerReset();
+void IRAM_ATTR wdtHeartbeatISR();
+void sendEsp32Status();
 
 // =============================================================================
 // Setup
@@ -165,9 +192,21 @@ void setup() {
         Serial.println("[INIT] BLE OK");
     }
 
+    // Initialize Watchdog (monitors RPi)
+    Serial.println("[INIT] Watchdog...");
+    RPI_Serial.println("{\"type\":\"init\",\"step\":\"watchdog\"}");
+    setupWatchdog();
+    Serial.println("[INIT] Watchdog OK");
+
+    // Initialize ESP32 hardware watchdog (self-monitoring)
+    Serial.println("[INIT] ESP32 hardware watchdog...");
+    esp_task_wdt_init(ESP32_WDT_TIMEOUT_S, true);  // timeout in seconds, panic on timeout
+    esp_task_wdt_add(NULL);  // Add current task (loop task)
+    Serial.printf("[INIT] ESP32 WDT OK, timeout=%ds\n", ESP32_WDT_TIMEOUT_S);
+
     // Send startup complete message
     Serial.println("[INIT] Complete!");
-    RPI_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"3.1.0\",\"mode\":\"ble-bridge\",\"wifi\":true}");
+    RPI_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"3.4.0\",\"mode\":\"ble-bridge\",\"wifi\":true,\"watchdog\":true}");
 
     // Build initial GPS JSON
     buildGpsJson();
@@ -193,6 +232,9 @@ void loop() {
     // Process UART commands from RPi bridge
     processUartCommands();
 
+    // Process watchdog (check for heartbeat timeout)
+    processWatchdog();
+
     // Update GPS JSON and send to RPi periodically
     if (now - lastGpsUpdate >= GPS_UPDATE_MS) {
         lastGpsUpdate = now;
@@ -208,6 +250,19 @@ void loop() {
 
     // Process BLE (handles UART responses too)
     bleBridge.process();
+
+    // Handle BLE admin commands
+    if (bleBridge.isRebootRequested()) {
+        bleBridge.clearRebootRequest();
+        Serial.println("[ADMIN] Reboot RPi requested via BLE");
+        delay(100);  // Let BLE ack be sent
+        triggerReset();
+    }
+
+    if (bleBridge.isStatusRequested()) {
+        bleBridge.clearStatusRequest();
+        sendEsp32Status();
+    }
 
     // Send heartbeat to RPi periodically
     if (now - lastHeartbeat >= HEARTBEAT_MS) {
@@ -227,6 +282,9 @@ void loop() {
             digitalWrite(PIN_LED, !digitalRead(PIN_LED));
         }
     }
+
+    // Feed ESP32 hardware watchdog
+    esp_task_wdt_reset();
 
     // Small delay to prevent tight loop
     delay(1);
@@ -295,13 +353,17 @@ void buildGpsJson() {
 
 void sendHeartbeat() {
     unsigned long uptime = (millis() - bootTime) / 1000;
+    unsigned long wdtElapsed = millis() - lastWdtPulse;
 
-    RPI_Serial.printf("{\"type\":\"heartbeat\",\"uptime\":%lu,\"gps_fix\":%s,\"sats\":%d,\"ble_connected\":%s,\"wifi_connected\":%s}\n",
+    RPI_Serial.printf("{\"type\":\"heartbeat\",\"uptime\":%lu,\"gps_fix\":%s,\"sats\":%d,\"ble_connected\":%s,\"wifi_connected\":%s,\"wdt_enabled\":%s,\"wdt_last_ms\":%lu,\"wdt_resets\":%d}\n",
         uptime,
         gpsHasFix ? "true" : "false",
         gps.satellites.value(),
         bleBridge.isConnected() ? "true" : "false",
-        WiFi.isConnected() ? "true" : "false");
+        WiFi.isConnected() ? "true" : "false",
+        wdtEnabled ? "true" : "false",
+        wdtElapsed,
+        wdtResetCount);
 }
 
 // =============================================================================
@@ -501,7 +563,155 @@ void handleUartCommand(const String& cmdJson) {
         // Request GPS status
         sendGpsToRpi();
     }
+    else if (strcmp(cmd, "wdt_enable") == 0) {
+        // Enable watchdog
+        wdtEnabled = true;
+        lastWdtPulse = millis();  // Reset timer
+        RPI_Serial.println("{\"type\":\"wdt_ack\",\"enabled\":true}");
+        Serial.println("[WDT] Watchdog enabled");
+    }
+    else if (strcmp(cmd, "wdt_disable") == 0) {
+        // Disable watchdog (for maintenance)
+        wdtEnabled = false;
+        RPI_Serial.println("{\"type\":\"wdt_ack\",\"enabled\":false}");
+        Serial.println("[WDT] Watchdog disabled");
+    }
+    else if (strcmp(cmd, "wdt_status") == 0) {
+        // Report watchdog status
+        unsigned long elapsed = millis() - lastWdtPulse;
+        RPI_Serial.printf("{\"type\":\"wdt_status\",\"enabled\":%s,\"last_pulse_ms\":%lu,\"timeout_ms\":%d,\"reset_count\":%d}\n",
+            wdtEnabled ? "true" : "false",
+            elapsed,
+            WDT_TIMEOUT_MS,
+            wdtResetCount);
+    }
+    else if (strcmp(cmd, "wdt_pet") == 0) {
+        // Software heartbeat (alternative to GPIO)
+        lastWdtPulse = millis();
+        Serial.println("[WDT] Software heartbeat received");
+    }
     else {
         Serial.printf("[CMD] Unknown command: %s\n", cmd);
     }
+}
+
+// =============================================================================
+// Watchdog Functions
+// =============================================================================
+
+// ISR for heartbeat GPIO transitions
+void IRAM_ATTR wdtHeartbeatISR() {
+    lastWdtPulse = millis();
+}
+
+void setupWatchdog() {
+    // Configure heartbeat input pin with pull-up
+    pinMode(PIN_WDT_HEARTBEAT, INPUT_PULLUP);
+
+    // Configure reset output pin - initially high impedance (no reset)
+    pinMode(PIN_WDT_RESET, INPUT);  // Start as input (high-Z)
+
+    // Attach interrupt on any change to heartbeat pin
+    attachInterrupt(digitalPinToInterrupt(PIN_WDT_HEARTBEAT), wdtHeartbeatISR, CHANGE);
+
+    // Initialize watchdog timer
+    lastWdtPulse = millis();
+    lastWdtState = digitalRead(PIN_WDT_HEARTBEAT);
+    wdtTriggered = false;
+    wdtResetTime = 0;
+
+    Serial.printf("[WDT] Watchdog initialized, timeout=%dms, grace=%dms\n",
+        WDT_TIMEOUT_MS, WDT_STARTUP_GRACE_MS);
+    Serial.printf("[WDT] Heartbeat pin: IO%d, Reset pin: IO%d\n",
+        PIN_WDT_HEARTBEAT, PIN_WDT_RESET);
+    Serial.println("[WDT] Reset requires jumper: RPi GPIO6 -> CM4 IO Board J2 GLOBAL_EN");
+}
+
+void processWatchdog() {
+    if (!wdtEnabled) {
+        return;
+    }
+
+    unsigned long now = millis();
+    unsigned long elapsed = now - lastWdtPulse;
+    unsigned long sinceAlert = now - wdtResetTime;
+    unsigned long sinceBoot = now - bootTime;
+
+    // Grace period after boot - don't trigger alert while RPi is booting
+    if (sinceBoot < WDT_STARTUP_GRACE_MS) {
+        return;
+    }
+
+    // Grace period after alert - wait for RPi to recover
+    if (wdtTriggered && sinceAlert < WDT_STARTUP_GRACE_MS) {
+        return;
+    }
+
+    // Clear triggered flag after grace period
+    if (wdtTriggered && sinceAlert >= WDT_STARTUP_GRACE_MS) {
+        wdtTriggered = false;
+        Serial.println("[WDT] Grace period ended, monitoring resumed");
+    }
+
+    // Check for timeout
+    if (elapsed >= WDT_TIMEOUT_MS) {
+        Serial.printf("[WDT] TIMEOUT! No heartbeat for %lu ms\n", elapsed);
+
+        // Alert via BLE to connected app
+        if (bleBridge.isConnected()) {
+            String alert = "{\"type\":\"wdt_reset\",\"msg\":\"RPi not responding, triggering reset\",\"elapsed_ms\":" +
+                           String(elapsed) + ",\"reset_count\":" + String(wdtResetCount + 1) + "}";
+            bleBridge.sendToClient(alert);
+        }
+
+        // Trigger CM4 reset via GLOBAL_EN
+        triggerReset();
+
+        // Update state
+        wdtTriggered = true;
+        wdtResetTime = millis();
+        wdtResetCount++;
+        lastWdtPulse = millis();  // Reset timer to avoid repeated alerts
+    }
+}
+
+void triggerReset() {
+    // Pull GLOBAL_EN LOW via GPIO6 to reset CM4
+    // Requires jumper from RPi GPIO6 to CM4 IO Board J2 pin 1 (GLOBAL_EN)
+    Serial.println("[WDT] Triggering CM4 reset via GLOBAL_EN...");
+
+    pinMode(PIN_WDT_RESET, OUTPUT);
+    digitalWrite(PIN_WDT_RESET, LOW);
+    delay(WDT_RESET_PULSE_MS);  // Hold LOW for reset
+    digitalWrite(PIN_WDT_RESET, HIGH);
+    delay(100);
+    pinMode(PIN_WDT_RESET, INPUT);  // Back to high-Z
+
+    Serial.println("[WDT] Reset pulse complete, CM4 should reboot");
+}
+
+void sendEsp32Status() {
+    // Send ESP32 status to BLE client
+    unsigned long uptime = (millis() - bootTime) / 1000;
+    unsigned long wdtElapsed = millis() - lastWdtPulse;
+
+    String status = "{\"type\":\"esp32_status\"";
+    status += ",\"uptime\":" + String(uptime);
+    status += ",\"version\":\"3.4.0\"";
+    status += ",\"gps_fix\":" + String(gpsHasFix ? "true" : "false");
+    status += ",\"sats\":" + String(gps.satellites.value());
+    status += ",\"ble_connected\":" + String(bleBridge.isConnected() ? "true" : "false");
+    status += ",\"wifi_connected\":" + String(WiFi.isConnected() ? "true" : "false");
+    if (WiFi.isConnected()) {
+        status += ",\"wifi_ssid\":\"" + WiFi.SSID() + "\"";
+        status += ",\"wifi_rssi\":" + String(WiFi.RSSI());
+    }
+    status += ",\"wdt_enabled\":" + String(wdtEnabled ? "true" : "false");
+    status += ",\"wdt_last_ms\":" + String(wdtElapsed);
+    status += ",\"wdt_resets\":" + String(wdtResetCount);
+    status += ",\"free_heap\":" + String(ESP.getFreeHeap());
+    status += "}";
+
+    bleBridge.sendToClient(status);
+    Serial.println("[ADMIN] ESP32 status sent via BLE");
 }

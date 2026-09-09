@@ -4,6 +4,10 @@
 
 #include "ble_bridge.h"
 
+// Minimum time between completing one message and starting the next (ms)
+// This ensures the BLE stack has time to flush all notifications
+#define BLE_MSG_INTERVAL_MS  50
+
 // =============================================================================
 // BleBridge Implementation
 // =============================================================================
@@ -15,7 +19,17 @@ BleBridge::BleBridge(HardwareSerial& serial)
     , _pResponseChar(nullptr)
     , _deviceConnected(false)
     , _sendMutex(xSemaphoreCreateMutex())
+    , _msgQueue(nullptr)
+    , _isSending(false)
+    , _lastSendComplete(0)
+    , _adminRebootRequested(false)
+    , _adminStatusRequested(false)
 {
+    // Create message queue - stores pointers to dynamically allocated strings
+    _msgQueue = xQueueCreate(BLE_MSG_QUEUE_SIZE, sizeof(char*));
+    if (_msgQueue == nullptr) {
+        Serial.println("[BLE] ERROR: Failed to create message queue!");
+    }
 }
 
 bool BleBridge::begin(const char* deviceName) {
@@ -44,6 +58,7 @@ bool BleBridge::begin(const char* deviceName) {
 
     Serial.printf("[BLE] Advertising as '%s'\n", deviceName);
     Serial.printf("[BLE] Service UUID: %s\n", PLANTER_SERVICE_UUID);
+    Serial.printf("[BLE] Message queue size: %d\n", BLE_MSG_QUEUE_SIZE);
 
     return true;
 }
@@ -75,16 +90,46 @@ void BleBridge::processUart() {
     // NOTE: UART reading is now handled by processUartCommands() in main.cpp
     // to avoid two code paths reading from the same serial port.
     // Messages are forwarded to BLE via sendToClient() from handleUartCommand().
-    //
-    // This function is kept for future use if needed, but currently does nothing.
-    // The mutex in sendToClient() ensures proper serialization of BLE writes.
 }
 
 void BleBridge::process() {
     // Process UART data from RPi
     processUart();
 
+    // Process outgoing message queue
+    processQueue();
+
     // NimBLE handles events automatically via callbacks
+}
+
+void BleBridge::processQueue() {
+    if (!isConnected() || _pResponseChar == nullptr || _msgQueue == nullptr) {
+        // If not connected, drain the queue to prevent buildup
+        if (_msgQueue != nullptr) {
+            char* msg;
+            while (xQueueReceive(_msgQueue, &msg, 0) == pdTRUE) {
+                free(msg);
+            }
+        }
+        return;
+    }
+
+    // Don't start a new message if we're still in the cooldown period
+    unsigned long now = millis();
+    if (now - _lastSendComplete < BLE_MSG_INTERVAL_MS) {
+        return;
+    }
+
+    // Try to get a message from the queue (non-blocking)
+    char* msg;
+    if (xQueueReceive(_msgQueue, &msg, 0) == pdTRUE) {
+        // Send this message
+        String message(msg);
+        free(msg);  // Free the allocated memory
+
+        sendMessageDirect(message);
+        _lastSendComplete = millis();
+    }
 }
 
 bool BleBridge::isConnected() {
@@ -95,12 +140,47 @@ int BleBridge::getConnectionCount() {
     return _pServer != nullptr ? _pServer->getConnectedCount() : 0;
 }
 
+int BleBridge::getQueuedMessageCount() {
+    if (_msgQueue == nullptr) return 0;
+    return uxQueueMessagesWaiting(_msgQueue);
+}
+
 void BleBridge::sendToClient(const String& message) {
-    if (!isConnected() || _pResponseChar == nullptr) {
+    if (!isConnected() || _pResponseChar == nullptr || _msgQueue == nullptr) {
         return;
     }
 
-    // Lock mutex to prevent interleaved sends from concurrent calls
+    // Check message size
+    if (message.length() > BLE_MSG_MAX_SIZE) {
+        Serial.printf("[BLE] Message too large (%d bytes), dropping\n", message.length());
+        return;
+    }
+
+    // Allocate memory for the message and copy it
+    char* msgCopy = (char*)malloc(message.length() + 1);
+    if (msgCopy == nullptr) {
+        Serial.println("[BLE] Failed to allocate memory for message, dropping");
+        return;
+    }
+    strcpy(msgCopy, message.c_str());
+
+    // Add to queue (non-blocking)
+    if (xQueueSend(_msgQueue, &msgCopy, 0) != pdTRUE) {
+        // Queue is full, drop the message
+        Serial.println("[BLE] Message queue full, dropping message");
+        free(msgCopy);
+        return;
+    }
+
+    // Log queue status periodically
+    int queueCount = uxQueueMessagesWaiting(_msgQueue);
+    if (queueCount > 5) {
+        Serial.printf("[BLE] Queued message, %d messages pending\n", queueCount);
+    }
+}
+
+void BleBridge::sendMessageDirect(const String& message) {
+    // Lock mutex to prevent any concurrent access
     if (xSemaphoreTake(_sendMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
         Serial.println("[BLE] Failed to acquire send mutex, dropping message");
         return;
@@ -131,23 +211,36 @@ void BleBridge::sendToClient(const String& message) {
         chunkCount++;
 
         // Delay between chunks to let BLE stack transmit
-        // Reduced delays to allow main loop to process GPS more frequently
-        delay(10);
-        vTaskDelay(pdMS_TO_TICKS(5));
+        delay(15);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    // Brief delay after message to let BLE stack finish
-    // Reduced from 200ms to allow GPS to be sent more frequently
-    delay(20);
-    vTaskDelay(pdMS_TO_TICKS(20));
+    // Longer delay after message to ensure BLE stack flushes all notifications
+    delay(30);
+    vTaskDelay(pdMS_TO_TICKS(30));
 
-    Serial.printf("[BLE] Sent to client: %d bytes in %d chunks\n", totalLen, chunkCount);
+    Serial.printf("[BLE] Sent: %d bytes in %d chunks\n", totalLen, chunkCount);
 
     xSemaphoreGive(_sendMutex);
 }
 
 void BleBridge::onBleDataReceived(const String& data) {
     Serial.printf("[BLE] Received from client: %s\n", data.c_str());
+
+    // Check for ESP32 admin commands (not forwarded to RPi)
+    if (data.indexOf("\"cmd\":\"reboot_rpi\"") >= 0) {
+        Serial.println("[BLE] Admin command: reboot_rpi");
+        sendToClient("{\"type\":\"admin_ack\",\"cmd\":\"reboot_rpi\",\"status\":\"rebooting\"}");
+        _adminRebootRequested = true;
+        return;
+    }
+
+    if (data.indexOf("\"cmd\":\"esp32_status\"") >= 0) {
+        Serial.println("[BLE] Admin command: esp32_status");
+        // Status will be sent by main loop
+        _adminStatusRequested = true;
+        return;
+    }
 
     // Forward to RPi via UART
     _serial.println(data);
@@ -161,6 +254,19 @@ void BleBridge::onClientConnect() {
 void BleBridge::onClientDisconnect() {
     _deviceConnected = false;
     Serial.println("[BLE] Client disconnected");
+
+    // Clear message queue on disconnect
+    if (_msgQueue != nullptr) {
+        char* msg;
+        int cleared = 0;
+        while (xQueueReceive(_msgQueue, &msg, 0) == pdTRUE) {
+            free(msg);
+            cleared++;
+        }
+        if (cleared > 0) {
+            Serial.printf("[BLE] Cleared %d queued messages on disconnect\n", cleared);
+        }
+    }
 
     // Restart advertising
     NimBLEDevice::getAdvertising()->start();

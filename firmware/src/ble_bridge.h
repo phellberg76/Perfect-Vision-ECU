@@ -13,11 +13,16 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <freertos/semphr.h>
+#include <freertos/queue.h>
 
 // Service and Characteristic UUIDs (must match Flutter app)
 #define PLANTER_SERVICE_UUID        "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 #define REQUEST_CHAR_UUID           "a1b2c3d4-e5f6-7890-abcd-ef1234567891"
 #define RESPONSE_CHAR_UUID          "a1b2c3d4-e5f6-7890-abcd-ef1234567892"
+
+// Message queue settings
+#define BLE_MSG_QUEUE_SIZE          32      // Max messages in queue
+#define BLE_MSG_MAX_SIZE            16384   // Max message size (16KB)
 
 class BleBridge {
 public:
@@ -29,7 +34,7 @@ public:
     // Process incoming data from UART (responses from RPi)
     void processUart();
 
-    // Process BLE events
+    // Process BLE events and message queue
     void process();
 
     // Check if a client is connected
@@ -38,7 +43,8 @@ public:
     // Get connection count
     int getConnectionCount();
 
-    // Send a message to connected client (for responses from RPi)
+    // Queue a message to send to connected client
+    // Messages are sent sequentially to prevent interleaving
     void sendToClient(const String& message);
 
     // Callback for when data is received from BLE client
@@ -48,6 +54,15 @@ public:
     void onClientConnect();
     void onClientDisconnect();
 
+    // Admin command flags (set by BLE, checked/cleared by main loop)
+    bool isRebootRequested() { return _adminRebootRequested; }
+    void clearRebootRequest() { _adminRebootRequested = false; }
+    bool isStatusRequested() { return _adminStatusRequested; }
+    void clearStatusRequest() { _adminStatusRequested = false; }
+
+    // Queue stats
+    int getQueuedMessageCount();
+
 private:
     HardwareSerial& _serial;
     NimBLEServer* _pServer;
@@ -56,8 +71,17 @@ private:
     bool _deviceConnected;
     String _rxBuffer;  // Buffer for incoming UART data
     SemaphoreHandle_t _sendMutex;  // Mutex to prevent interleaved BLE sends
+    QueueHandle_t _msgQueue;  // Queue for outgoing messages
+    bool _isSending;  // Flag to track if currently sending
+    unsigned long _lastSendComplete;  // Time last send completed
+
+    // Admin command flags
+    volatile bool _adminRebootRequested;
+    volatile bool _adminStatusRequested;
 
     void setupService();
+    void processQueue();  // Process one message from the queue
+    void sendMessageDirect(const String& message);  // Actually send via BLE
 };
 
 // Server callbacks
