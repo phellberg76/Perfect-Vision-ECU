@@ -8,10 +8,15 @@
 #   3. Java webapp (copy WAR and restart Tomcat)
 #
 # Usage:
-#   ./update_all_from_cloud.sh           - Update all components
+#   ./update_all_from_cloud.sh           - Update all components (only if changed)
 #   ./update_all_from_cloud.sh esp32     - Update ESP32 only
 #   ./update_all_from_cloud.sh rust      - Update Rust only
 #   ./update_all_from_cloud.sh java      - Update Java only
+#   ./update_all_from_cloud.sh --force   - Force update all (ignore checksums)
+#   ./update_all_from_cloud.sh esp32 --force - Force update ESP32 only
+#
+# The script compares MD5 checksums of local and remote files and only downloads
+# files that have changed. Use --force to override this behavior.
 #
 # Prerequisites:
 #   - Run compile_all.sh on cloud server first
@@ -22,6 +27,20 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP_DIR="/tmp/planter-update"
+FORCE_UPDATE=false
+
+# Parse arguments
+COMPONENT="all"
+for arg in "$@"; do
+    case "$arg" in
+        --force|-f)
+            FORCE_UPDATE=true
+            ;;
+        esp32|rust|java|all)
+            COMPONENT="$arg"
+            ;;
+    esac
+done
 
 # Find esptool - check venv, system, or pipx
 FIRMWARE_DIR="/root/Raspberry-Pi-Backup-power-and-GPS-hat-v4/firmware"
@@ -73,6 +92,87 @@ log() { echo -e "${GREEN}[UPDATE]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# Hash cache directory (persists between runs)
+HASH_CACHE_DIR="/var/cache/planter-update"
+
+# Get MD5 hash of a remote file via SSH
+get_remote_hash() {
+    local remote_path="$1"
+    ssh -p "$CLOUD_PORT" "$CLOUD_HOST" "md5sum '$remote_path' 2>/dev/null | cut -d' ' -f1" 2>/dev/null
+}
+
+# Get MD5 hash of a local file
+get_local_hash() {
+    local local_path="$1"
+    if [ -f "$local_path" ]; then
+        md5sum "$local_path" 2>/dev/null | cut -d' ' -f1
+    fi
+}
+
+# Check if a file needs to be downloaded (returns 0 if download needed, 1 if not)
+needs_download() {
+    local remote_path="$1"
+    local local_path="$2"
+    local cache_key="$3"  # Optional: use cached hash instead of local file
+
+    # Force update bypasses checksum comparison
+    if [ "$FORCE_UPDATE" = true ]; then
+        return 0
+    fi
+
+    local remote_hash=$(get_remote_hash "$remote_path")
+    if [ -z "$remote_hash" ]; then
+        warn "Could not get remote hash for $remote_path, will download"
+        return 0
+    fi
+
+    local local_hash=""
+    if [ -n "$cache_key" ]; then
+        # Use cached hash (for files like ESP32 firmware that get flashed, not stored)
+        local cache_file="$HASH_CACHE_DIR/$cache_key"
+        if [ -f "$cache_file" ]; then
+            local_hash=$(cat "$cache_file")
+        fi
+    else
+        local_hash=$(get_local_hash "$local_path")
+    fi
+
+    if [ "$remote_hash" = "$local_hash" ]; then
+        return 1  # No download needed
+    fi
+    return 0  # Download needed
+}
+
+# Save hash to cache (for files that get flashed/deployed, not stored locally)
+save_hash_cache() {
+    local cache_key="$1"
+    local hash="$2"
+    sudo mkdir -p "$HASH_CACHE_DIR"
+    echo "$hash" | sudo tee "$HASH_CACHE_DIR/$cache_key" > /dev/null
+}
+
+# Smart copy: only download if file has changed
+smart_scp() {
+    local remote_path="$1"
+    local local_path="$2"
+    local cache_key="${3:-}"  # Optional cache key for non-persistent files
+
+    if needs_download "$remote_path" "$local_path" "$cache_key"; then
+        log "Downloading $(basename "$remote_path") (changed)..."
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$remote_path" "$local_path" || return 1
+
+        # Update cache if using cache key
+        if [ -n "$cache_key" ]; then
+            local new_hash=$(get_local_hash "$local_path")
+            save_hash_cache "$cache_key" "$new_hash"
+        fi
+        return 0
+    else
+        log "Skipping $(basename "$remote_path") (unchanged)"
+        return 2  # Special return code: file unchanged
+    fi
+}
+
 # Set GPIO using pinctrl
 gpio_set() {
     local pin=$1
@@ -121,12 +221,28 @@ update_esp32() {
 
     mkdir -p "$TMP_DIR"
 
-    log "Fetching ESP32 firmware from cloud..."
-    scp -P "$CLOUD_PORT" \
-        "$CLOUD_HOST:$CLOUD_ESP32_DIR/bootloader.bin" \
-        "$CLOUD_HOST:$CLOUD_ESP32_DIR/partitions.bin" \
-        "$CLOUD_HOST:$CLOUD_ESP32_DIR/firmware.bin" \
-        "$TMP_DIR/" || error "Failed to fetch ESP32 firmware"
+    # Check if any ESP32 files have changed
+    log "Checking for ESP32 firmware changes..."
+    local esp32_changed=false
+
+    for file in bootloader.bin partitions.bin firmware.bin; do
+        if needs_download "$CLOUD_ESP32_DIR/$file" "$TMP_DIR/$file" "esp32_$file"; then
+            esp32_changed=true
+            break
+        fi
+    done
+
+    if [ "$esp32_changed" = false ]; then
+        log "ESP32 firmware unchanged, skipping update"
+        return 0
+    fi
+
+    log "ESP32 firmware changed, downloading..."
+    for file in bootloader.bin partitions.bin firmware.bin; do
+        smart_scp "$CLOUD_ESP32_DIR/$file" "$TMP_DIR/$file" "esp32_$file" || {
+            [ $? -eq 2 ] || error "Failed to fetch $file"
+        }
+    done
 
     # Stop services using serial port
     log "Stopping planter-ble-bridge.service..."
@@ -187,7 +303,14 @@ update_rust() {
 
     mkdir -p "$TMP_DIR"
 
-    log "Fetching Rust binary from cloud..."
+    log "Checking for Rust binary changes..."
+    # Compare against installed binary
+    if ! needs_download "$CLOUD_RUST_BIN" "$RUST_BIN_DEST"; then
+        log "Rust binary unchanged, skipping update"
+        return 0
+    fi
+
+    log "Rust binary changed, downloading..."
     scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_RUST_BIN" "$TMP_DIR/planter-ble-bridge" \
         || error "Failed to fetch Rust binary"
 
@@ -209,8 +332,21 @@ update_java() {
 
     mkdir -p "$TMP_DIR"
 
-    log "Fetching WAR file from cloud..."
-    scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_JAVA_DIR/planter_app*.war" "$TMP_DIR/" \
+    # Find the WAR file name on remote
+    log "Checking for Java WAR changes..."
+    REMOTE_WAR=$(ssh -p "$CLOUD_PORT" "$CLOUD_HOST" "ls -1 $CLOUD_JAVA_DIR/planter_app*.war 2>/dev/null | head -1")
+    if [ -z "$REMOTE_WAR" ]; then
+        error "No WAR file found on cloud server"
+    fi
+
+    # Compare against installed WAR
+    if ! needs_download "$REMOTE_WAR" "$JAVA_WAR_DEST"; then
+        log "Java WAR unchanged, skipping update"
+        return 0
+    fi
+
+    log "Java WAR changed, downloading..."
+    scp -P "$CLOUD_PORT" "$CLOUD_HOST:$REMOTE_WAR" "$TMP_DIR/" \
         || error "Failed to fetch WAR file"
 
     WAR_FILE=$(ls "$TMP_DIR"/*.war 2>/dev/null | head -1)
@@ -234,7 +370,11 @@ cleanup() {
 # Main
 trap cleanup EXIT
 
-case "${1:-all}" in
+if [ "$FORCE_UPDATE" = true ]; then
+    log "Force update enabled - checksums will be ignored"
+fi
+
+case "$COMPONENT" in
     esp32)
         update_esp32
         ;;
@@ -244,7 +384,7 @@ case "${1:-all}" in
     java)
         update_java
         ;;
-    all|*)
+    all)
         log "=== Updating All Components from Cloud ==="
         echo ""
         update_esp32
@@ -254,5 +394,8 @@ case "${1:-all}" in
         update_java
         echo ""
         log "=== All updates complete! ==="
+        ;;
+    *)
+        error "Unknown component: $COMPONENT (use esp32, rust, java, or all)"
         ;;
 esac
