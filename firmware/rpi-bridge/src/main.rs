@@ -98,6 +98,12 @@ async fn run_uart_mode(
     // Get ESP32 state from proxy
     let esp32_state = proxy.esp32_state();
 
+    // Create HTTP client for forwarding GPS to Java backend
+    let gps_forward_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let backend_url = args.backend.clone();
+
     // Create channels for UART communication
     let (event_tx, event_rx) = mpsc::channel::<UartEvent>();
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<UartCommand>(100);
@@ -123,6 +129,23 @@ async fn run_uart_mode(
 
                         // First, try to parse as ESP32 state message (GPS, WiFi, heartbeat, etc.)
                         if let Ok(esp32_msg) = serde_json::from_str::<Esp32Message>(&message) {
+                            // Forward GPS to Java backend for fallback speed
+                            if let Esp32Message::Gps(ref gps) = esp32_msg {
+                                let client = gps_forward_client.clone();
+                                let url = format!("{}/updateGpsFromBridge", backend_url);
+                                let gps_json = serde_json::to_string(gps).unwrap_or_default();
+                                tokio::spawn(async move {
+                                    if let Err(e) = client
+                                        .post(&url)
+                                        .header("Content-Type", "application/json")
+                                        .body(gps_json)
+                                        .send()
+                                        .await
+                                    {
+                                        log::trace!("Failed to forward GPS to Java: {}", e);
+                                    }
+                                });
+                            }
                             handle_esp32_message(&esp32_state, esp32_msg);
                             continue;
                         }
