@@ -140,7 +140,7 @@ async fn run_uart_mode(
                                     gps.fix, gps.sats, gps.lat, gps.lng, gps.speed
                                 );
                                 let client = gps_forward_client.clone();
-                                let url = format!("{}/updateGpsFromBridge", backend_url);
+                                let url = format!("{}/planter_app/rest/updateGpsFromBridge", backend_url);
                                 let gps_json = serde_json::to_string(gps).unwrap_or_default();
                                 tokio::spawn(async move {
                                     match client
