@@ -151,9 +151,10 @@ void sendEsp32Status();
 // =============================================================================
 
 void setup() {
-    // CRITICAL: Set reset pin to high-Z with pull-up immediately to avoid holding GLOBAL_EN low
-    // This must happen before any other initialization
-    pinMode(PIN_WDT_RESET, INPUT_PULLUP);
+    // CRITICAL: Set reset pin to high-Z (no pull-up!) immediately
+    // GLOBAL_EN expects 5V logic - our 3.3V pull-up would be seen as LOW
+    // Let GLOBAL_EN's internal 100k pull-up to 5V do the work
+    pinMode(PIN_WDT_RESET, INPUT);
 
     bootTime = millis();
 
@@ -613,8 +614,9 @@ void setupWatchdog() {
     // Configure heartbeat input pin with pull-up
     pinMode(PIN_WDT_HEARTBEAT, INPUT_PULLUP);
 
-    // Configure reset output pin - high-Z with internal pull-up (already set in setup())
-    pinMode(PIN_WDT_RESET, INPUT_PULLUP);
+    // Configure reset output pin - high-Z, NO pull-up (already set in setup())
+    // GLOBAL_EN expects 5V logic - let its internal 100k pull to 5V
+    pinMode(PIN_WDT_RESET, INPUT);
 
     // Attach interrupt on any change to heartbeat pin
     attachInterrupt(digitalPinToInterrupt(PIN_WDT_HEARTBEAT), wdtHeartbeatISR, CHANGE);
@@ -681,16 +683,15 @@ void processWatchdog() {
 }
 
 void triggerReset() {
-    // Pull GLOBAL_EN LOW via GPIO6 to reset CM4
-    // Requires jumper from RPi GPIO6 to CM4 IO Board J2 pin 1 (GLOBAL_EN)
+    // Pull GLOBAL_EN LOW via GPIO to reset CM4
+    // Requires jumper from RPi GPIO4 to CM4 IO Board J2 pin 1 (GLOBAL_EN)
+    // Uses open-drain style: OUTPUT LOW to reset, INPUT to release (5V pull-up on GLOBAL_EN)
     Serial.println("[WDT] Triggering CM4 reset via GLOBAL_EN...");
 
     pinMode(PIN_WDT_RESET, OUTPUT);
     digitalWrite(PIN_WDT_RESET, LOW);
     delay(WDT_RESET_PULSE_MS);  // Hold LOW for reset
-    digitalWrite(PIN_WDT_RESET, HIGH);
-    delay(100);
-    pinMode(PIN_WDT_RESET, INPUT);  // Back to high-Z
+    pinMode(PIN_WDT_RESET, INPUT);  // Release to high-Z, GLOBAL_EN's 100k pulls to 5V
 
     Serial.println("[WDT] Reset pulse complete, CM4 should reboot");
 }
