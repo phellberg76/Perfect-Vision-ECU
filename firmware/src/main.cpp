@@ -150,6 +150,10 @@ void sendEsp32Status();
 // =============================================================================
 
 void setup() {
+    // CRITICAL: Set reset pin to high-Z with pull-up immediately to avoid holding GLOBAL_EN low
+    // This must happen before any other initialization
+    pinMode(PIN_WDT_RESET, INPUT_PULLUP);
+
     bootTime = millis();
 
     // Initialize USB Serial for debug output
@@ -608,8 +612,8 @@ void setupWatchdog() {
     // Configure heartbeat input pin with pull-up
     pinMode(PIN_WDT_HEARTBEAT, INPUT_PULLUP);
 
-    // Configure reset output pin - initially high impedance (no reset)
-    pinMode(PIN_WDT_RESET, INPUT);  // Start as input (high-Z)
+    // Configure reset output pin - high-Z with internal pull-up (already set in setup())
+    pinMode(PIN_WDT_RESET, INPUT_PULLUP);
 
     // Attach interrupt on any change to heartbeat pin
     attachInterrupt(digitalPinToInterrupt(PIN_WDT_HEARTBEAT), wdtHeartbeatISR, CHANGE);
