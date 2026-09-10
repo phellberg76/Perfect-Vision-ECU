@@ -150,10 +150,13 @@ void sendEsp32Status();
 // =============================================================================
 
 void setup() {
-    // CRITICAL: Set reset pin to high-Z (no pull-up!) immediately
-    // GLOBAL_EN expects 5V logic - our 3.3V pull-up would be seen as LOW
-    // Let GLOBAL_EN's internal 100k pull-up to 5V do the work
-    pinMode(PIN_WDT_RESET, INPUT);
+    // CRITICAL: Set reset pin LOW immediately, then to INPUT
+    // External circuit: NPN transistor with 10k pull-down on base
+    // GPIO HIGH = transistor ON = GLOBAL_EN LOW = reset (inverted logic)
+    // Setting LOW first ensures transistor stays OFF during boot
+    pinMode(PIN_WDT_RESET, OUTPUT);
+    digitalWrite(PIN_WDT_RESET, LOW);
+    pinMode(PIN_WDT_RESET, INPUT);  // 10k external pull-down keeps transistor OFF
 
     bootTime = millis();
 
@@ -613,8 +616,8 @@ void setupWatchdog() {
     // Configure heartbeat input pin with pull-up
     pinMode(PIN_WDT_HEARTBEAT, INPUT_PULLUP);
 
-    // Configure reset output pin - high-Z, NO pull-up (already set in setup())
-    // GLOBAL_EN expects 5V logic - let its internal 100k pull to 5V
+    // Configure reset output pin (already set in setup())
+    // External NPN transistor with 10k pull-down - INPUT keeps transistor OFF
     pinMode(PIN_WDT_RESET, INPUT);
 
     // Attach interrupt on any change to heartbeat pin
@@ -682,15 +685,16 @@ void processWatchdog() {
 }
 
 void triggerReset() {
-    // Pull GLOBAL_EN LOW via GPIO to reset CM4
-    // Requires jumper from RPi GPIO6 to CM4 IO Board J2 pin 1 (GLOBAL_EN)
-    // Uses open-drain style: OUTPUT LOW to reset, INPUT to release (5V pull-up on GLOBAL_EN)
+    // Pull GLOBAL_EN LOW via NPN transistor to reset CM4
+    // Circuit: GPIO -> 1k -> Base, 10k pull-down on Base, Collector -> GLOBAL_EN, Emitter -> GND
+    // Logic is inverted: GPIO HIGH = transistor ON = GLOBAL_EN LOW = reset
     Serial.println("[WDT] Triggering CM4 reset via GLOBAL_EN...");
 
     pinMode(PIN_WDT_RESET, OUTPUT);
-    digitalWrite(PIN_WDT_RESET, LOW);
-    delay(WDT_RESET_PULSE_MS);  // Hold LOW for reset
-    pinMode(PIN_WDT_RESET, INPUT);  // Release to high-Z, GLOBAL_EN's 100k pulls to 5V
+    digitalWrite(PIN_WDT_RESET, HIGH);  // Turn on transistor, pulls GLOBAL_EN LOW
+    delay(WDT_RESET_PULSE_MS);  // Hold for reset
+    digitalWrite(PIN_WDT_RESET, LOW);   // Turn off transistor, GLOBAL_EN returns HIGH
+    pinMode(PIN_WDT_RESET, INPUT);      // Back to high-Z (10k pull-down keeps transistor OFF)
 
     Serial.println("[WDT] Reset pulse complete, CM4 should reboot");
 }
