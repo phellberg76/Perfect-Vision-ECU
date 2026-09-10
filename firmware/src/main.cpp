@@ -150,13 +150,12 @@ void sendEsp32Status();
 // =============================================================================
 
 void setup() {
-    // CRITICAL: Set reset pin LOW immediately, then to INPUT
-    // External circuit: NPN transistor with 10k pull-down on base
-    // GPIO HIGH = transistor ON = GLOBAL_EN LOW = reset (inverted logic)
-    // Setting LOW first ensures transistor stays OFF during boot
-    pinMode(PIN_WDT_RESET, OUTPUT);
-    digitalWrite(PIN_WDT_RESET, LOW);
-    pinMode(PIN_WDT_RESET, INPUT);  // 10k external pull-down keeps transistor OFF
+    // CRITICAL: Set reset pin to safe state immediately
+    // External circuit: 4N25 optocoupler with active-low logic
+    // 3.3V -> 330Ω -> LED anode, LED cathode -> GPIO, phototransistor pulls GLOBAL_EN low
+    // GPIO floating/HIGH = LED OFF = no reset (safe)
+    // GPIO LOW = LED ON = GLOBAL_EN pulled LOW = reset
+    pinMode(PIN_WDT_RESET, INPUT);  // Floating = safe, no current path for LED
 
     bootTime = millis();
 
@@ -214,7 +213,7 @@ void setup() {
 
     // Send startup complete message
     Serial.println("[INIT] Complete!");
-    RPI_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"3.4.0\",\"mode\":\"ble-bridge\",\"wifi\":true,\"watchdog\":true}");
+    RPI_Serial.println("{\"type\":\"startup\",\"device\":\"rpi-gps-hat-v4\",\"version\":\"3.5.0\",\"mode\":\"ble-bridge\",\"wifi\":true,\"watchdog\":true}");
 
     // Build initial GPS JSON
     buildGpsJson();
@@ -617,7 +616,7 @@ void setupWatchdog() {
     pinMode(PIN_WDT_HEARTBEAT, INPUT_PULLUP);
 
     // Configure reset output pin (already set in setup())
-    // External NPN transistor with 10k pull-down - INPUT keeps transistor OFF
+    // External 4N25 optocoupler - INPUT/floating keeps LED OFF (no reset)
     pinMode(PIN_WDT_RESET, INPUT);
 
     // Attach interrupt on any change to heartbeat pin
@@ -685,16 +684,16 @@ void processWatchdog() {
 }
 
 void triggerReset() {
-    // Pull GLOBAL_EN LOW via NPN transistor to reset CM4
-    // Circuit: GPIO -> 1k -> Base, 10k pull-down on Base, Collector -> GLOBAL_EN, Emitter -> GND
-    // Logic is inverted: GPIO HIGH = transistor ON = GLOBAL_EN LOW = reset
+    // Pull GLOBAL_EN LOW via 4N25 optocoupler to reset CM4
+    // Circuit: 3.3V -> 330Ω -> LED anode (pin 1), LED cathode (pin 2) -> GPIO
+    //          GLOBAL_EN -> Collector (pin 5), Emitter (pin 4) -> GND
+    // Active-low logic: GPIO LOW = LED ON = phototransistor ON = GLOBAL_EN pulled LOW = reset
     Serial.println("[WDT] Triggering CM4 reset via GLOBAL_EN...");
 
     pinMode(PIN_WDT_RESET, OUTPUT);
-    digitalWrite(PIN_WDT_RESET, HIGH);  // Turn on transistor, pulls GLOBAL_EN LOW
+    digitalWrite(PIN_WDT_RESET, LOW);   // Turn on optocoupler LED, pulls GLOBAL_EN LOW
     delay(WDT_RESET_PULSE_MS);  // Hold for reset
-    digitalWrite(PIN_WDT_RESET, LOW);   // Turn off transistor, GLOBAL_EN returns HIGH
-    pinMode(PIN_WDT_RESET, INPUT);      // Back to high-Z (10k pull-down keeps transistor OFF)
+    pinMode(PIN_WDT_RESET, INPUT);      // Back to floating (LED OFF, GLOBAL_EN returns HIGH)
 
     Serial.println("[WDT] Reset pulse complete, CM4 should reboot");
 }
@@ -706,7 +705,7 @@ void sendEsp32Status() {
 
     String status = "{\"type\":\"esp32_status\"";
     status += ",\"uptime\":" + String(uptime);
-    status += ",\"version\":\"3.4.0\"";
+    status += ",\"version\":\"3.5.0\"";
     status += ",\"gps_fix\":" + String(gpsHasFix ? "true" : "false");
     status += ",\"sats\":" + String(gps.satellites.value());
     status += ",\"ble_connected\":" + String(bleBridge.isConnected() ? "true" : "false");
