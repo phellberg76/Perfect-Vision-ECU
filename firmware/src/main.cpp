@@ -54,8 +54,7 @@
 // Watchdog pins (RPi GPIO connections)
 // For full reset: jumper RPi GPIO6 to GLOBAL_EN on CM4 IO Board J2 pin 1
 #define PIN_WDT_HEARTBEAT  3   // ESP32 IO3 <- RPi GPIO5 (heartbeat input, 10k pull-up)
-#define PIN_WDT_RESET      10  // ESP32 IO10 -> RPi GPIO6 -> GLOBAL_EN (reset output)
-                               // Note: IO4 caused boot issues - it goes LOW during ESP32 boot
+#define PIN_WDT_RESET      4   // ESP32 IO4 -> RPi GPIO6 -> GLOBAL_EN (reset output)
 
 // =============================================================================
 // Constants
@@ -684,7 +683,7 @@ void processWatchdog() {
 
 void triggerReset() {
     // Pull GLOBAL_EN LOW via GPIO to reset CM4
-    // Requires jumper from RPi GPIO4 to CM4 IO Board J2 pin 1 (GLOBAL_EN)
+    // Requires jumper from RPi GPIO6 to CM4 IO Board J2 pin 1 (GLOBAL_EN)
     // Uses open-drain style: OUTPUT LOW to reset, INPUT to release (5V pull-up on GLOBAL_EN)
     Serial.println("[WDT] Triggering CM4 reset via GLOBAL_EN...");
 
