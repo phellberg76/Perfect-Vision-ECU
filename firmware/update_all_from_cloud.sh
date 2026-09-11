@@ -364,7 +364,21 @@ update_java() {
     log "Deploying to Tomcat..."
     sudo mv "$WAR_FILE" "$JAVA_WAR_DEST"
 
-    # Ensure tomcat user has GPIO access for Pi4J v2
+    log "Restarting Tomcat..."
+    sudo service tomcat restart
+
+    log "Java update complete!"
+}
+
+cleanup() {
+    rm -rf "$TMP_DIR"
+}
+
+# Ensure system is configured for Pi4J v2 GPIO access
+ensure_system_setup() {
+    log "=== Ensuring System Configuration ==="
+
+    # Ensure tomcat user has GPIO access
     log "Ensuring tomcat user is in gpio group..."
     sudo usermod -aG gpio tomcat
 
@@ -374,18 +388,14 @@ update_java() {
         sudo apt-get update
         sudo apt-get install -y pigpio
     fi
-    log "Ensuring pigpiod daemon is enabled and running..."
-    sudo systemctl enable pigpiod
-    sudo systemctl start pigpiod
 
-    log "Restarting Tomcat..."
-    sudo service tomcat restart
-
-    log "Java update complete!"
-}
-
-cleanup() {
-    rm -rf "$TMP_DIR"
+    if ! systemctl is-active --quiet pigpiod; then
+        log "Starting pigpiod daemon..."
+        sudo systemctl enable pigpiod
+        sudo systemctl start pigpiod
+    else
+        log "pigpiod already running"
+    fi
 }
 
 # Main
@@ -407,6 +417,8 @@ case "$COMPONENT" in
         ;;
     all)
         log "=== Updating All Components from Cloud ==="
+        echo ""
+        ensure_system_setup
         echo ""
         update_esp32
         echo ""
