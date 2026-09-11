@@ -51,10 +51,9 @@
 // Status LED
 #define PIN_LED       46   // Active HIGH - indicates healthy operation
 
-// Watchdog pins (RPi GPIO connections)
+// Watchdog reset pin
 // For full reset: jumper RPi GPIO6 to GLOBAL_EN on CM4 IO Board J2 pin 1
-#define PIN_WDT_HEARTBEAT  3   // ESP32 IO3 <- RPi GPIO5 (heartbeat input, 10k pull-up)
-#define PIN_WDT_RESET      4   // ESP32 IO4 -> RPi GPIO6 -> GLOBAL_EN (reset output)
+#define PIN_WDT_RESET      4   // ESP32 IO4 -> 4N25 optocoupler -> GLOBAL_EN
 
 // =============================================================================
 // Constants
@@ -100,10 +99,8 @@ unsigned long lastHeartbeat = 0;
 unsigned long lastWifiUpdate = 0;
 unsigned long bootTime = 0;
 
-// Watchdog State
-volatile unsigned long lastWdtPulse = 0;    // Last time heartbeat changed
-volatile bool lastWdtState = false;          // Last heartbeat GPIO state
-volatile int wdtPulseCount = 0;              // Pulse count for logging
+// Watchdog State (software heartbeat via UART wdt_pet command)
+volatile unsigned long lastWdtPulse = 0;    // Last time heartbeat received
 bool wdtEnabled = true;                      // Watchdog enabled
 bool wdtTriggered = false;                   // Has watchdog triggered a reset?
 unsigned long wdtResetTime = 0;              // Time of last reset
@@ -144,7 +141,6 @@ void sendHeartbeat();
 void setupWatchdog();
 void processWatchdog();
 void triggerReset();
-void IRAM_ATTR wdtHeartbeatISR();
 void sendEsp32Status();
 
 // =============================================================================
@@ -608,34 +604,20 @@ void handleUartCommand(const String& cmdJson) {
 // Watchdog Functions
 // =============================================================================
 
-// ISR for heartbeat GPIO transitions
-void IRAM_ATTR wdtHeartbeatISR() {
-    lastWdtPulse = millis();
-    wdtPulseCount++;
-}
-
 void setupWatchdog() {
-    // Configure heartbeat input pin with pull-up
-    pinMode(PIN_WDT_HEARTBEAT, INPUT_PULLUP);
-
     // Configure reset output pin (already set in setup())
     // External 4N25 optocoupler - INPUT/floating keeps LED OFF (no reset)
     pinMode(PIN_WDT_RESET, INPUT);
 
-    // Attach interrupt on any change to heartbeat pin
-    attachInterrupt(digitalPinToInterrupt(PIN_WDT_HEARTBEAT), wdtHeartbeatISR, CHANGE);
-
     // Initialize watchdog timer
     lastWdtPulse = millis();
-    lastWdtState = digitalRead(PIN_WDT_HEARTBEAT);
     wdtTriggered = false;
     wdtResetTime = 0;
 
     Serial.printf("[WDT] Watchdog initialized, timeout=%dms, grace=%dms\n",
         WDT_TIMEOUT_MS, WDT_STARTUP_GRACE_MS);
-    Serial.printf("[WDT] Heartbeat pin: IO%d, Reset pin: IO%d\n",
-        PIN_WDT_HEARTBEAT, PIN_WDT_RESET);
-    Serial.println("[WDT] Reset requires jumper: RPi GPIO6 -> CM4 IO Board J2 GLOBAL_EN");
+    Serial.println("[WDT] Heartbeat via UART: Java -> Bridge -> {\"cmd\":\"wdt_pet\"}");
+    Serial.println("[WDT] Reset via 4N25 optocoupler on IO4 -> GLOBAL_EN");
 }
 
 void processWatchdog() {
@@ -643,14 +625,10 @@ void processWatchdog() {
     unsigned long elapsed = now - lastWdtPulse;
     unsigned long sinceAlert = now - wdtResetTime;
     unsigned long sinceBoot = now - bootTime;
-    bool currentPinState = digitalRead(PIN_WDT_HEARTBEAT);
-    static int lastLoggedPulseCount = 0;
 
     // Periodic USB logging every 5 seconds
     if (now - lastWdtLog >= 5000) {
         lastWdtLog = now;
-        int newPulses = wdtPulseCount - lastLoggedPulseCount;
-        lastLoggedPulseCount = wdtPulseCount;
 
         const char* status;
         if (!wdtEnabled) {
@@ -665,12 +643,9 @@ void processWatchdog() {
             status = "OK";
         }
 
-        Serial.printf("[WDT] status=%s pin=%s elapsed=%lums pulses=%d(+%d) timeout=%dms resets=%d\n",
+        Serial.printf("[WDT] status=%s elapsed=%lums timeout=%dms resets=%d\n",
             status,
-            currentPinState ? "HIGH" : "LOW",
             elapsed,
-            wdtPulseCount,
-            newPulses,
             WDT_TIMEOUT_MS,
             wdtResetCount);
     }
