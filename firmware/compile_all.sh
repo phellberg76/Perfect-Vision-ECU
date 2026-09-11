@@ -12,7 +12,7 @@
 #   ./compile_all.sh esp32     - Build ESP32 only
 #   ./compile_all.sh rust      - Build Rust only
 #   ./compile_all.sh java      - Build Java only
-#   ./compile_all.sh force     - Force rebuild all components
+#   ./compile_all.sh --force   - Force rebuild all components
 #
 
 set -e
@@ -231,7 +231,7 @@ case "${1:-all}" in
     java)
         build_java
         ;;
-    force)
+    force|--force)
         log "Force rebuild all components"
         do_git_pulls
         build_esp32
