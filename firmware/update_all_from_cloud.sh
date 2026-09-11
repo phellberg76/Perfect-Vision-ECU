@@ -334,6 +334,17 @@ update_rust() {
 
     mkdir -p "$TMP_DIR"
 
+    # Ensure systemd service is installed
+    if [ ! -f /etc/systemd/system/planter-ble-bridge.service ]; then
+        log "Installing planter-ble-bridge systemd service..."
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-ble-bridge.service" "$TMP_DIR/" \
+            || error "Failed to fetch service file"
+        sudo cp "$TMP_DIR/planter-ble-bridge.service" /etc/systemd/system/
+        sudo systemctl daemon-reload
+        sudo systemctl enable planter-ble-bridge.service
+        log "Service installed and enabled"
+    fi
+
     log "Checking for Rust binary changes..."
     # Compare against installed binary
     if ! needs_download "$CLOUD_RUST_BIN" "$RUST_BIN_DEST"; then
