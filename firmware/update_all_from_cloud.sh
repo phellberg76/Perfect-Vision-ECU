@@ -356,16 +356,59 @@ update_java() {
     scp -P "$CLOUD_PORT" "$CLOUD_HOST:$REMOTE_WAR" "$TMP_DIR/" \
         || error "Failed to fetch WAR file"
 
+    # Ensure file is fully written to disk
+    sync
+
     WAR_FILE=$(ls "$TMP_DIR"/*.war 2>/dev/null | head -1)
     if [ -z "$WAR_FILE" ]; then
         error "No WAR file found"
     fi
 
-    log "Deploying to Tomcat..."
-    sudo mv "$WAR_FILE" "$JAVA_WAR_DEST"
+    # Verify WAR file is valid (not empty or corrupted)
+    log "Verifying WAR file integrity..."
+    WAR_SIZE=$(stat -c%s "$WAR_FILE" 2>/dev/null || stat -f%z "$WAR_FILE" 2>/dev/null)
+    if [ -z "$WAR_SIZE" ] || [ "$WAR_SIZE" -lt 1000 ]; then
+        error "WAR file is too small ($WAR_SIZE bytes) - likely corrupted"
+    fi
 
-    log "Restarting Tomcat..."
-    sudo service tomcat restart
+    if ! unzip -t "$WAR_FILE" > /dev/null 2>&1; then
+        error "WAR file is corrupted (failed zip integrity check)"
+    fi
+    log "WAR file verified: $WAR_SIZE bytes, integrity OK"
+
+    # Stop Tomcat before deploying (prevents partial deployment issues)
+    log "Stopping Tomcat..."
+    sudo service tomcat stop
+    sleep 2
+
+    # Remove old webapp directory to ensure clean deployment
+    WEBAPP_DIR="/opt/tomcat/webapps/planter_app"
+    if [ -d "$WEBAPP_DIR" ]; then
+        log "Removing old webapp directory..."
+        sudo rm -rf "$WEBAPP_DIR"
+    fi
+
+    # Deploy the new WAR
+    log "Deploying to Tomcat..."
+    sudo cp "$WAR_FILE" "$JAVA_WAR_DEST"
+    sync
+
+    # Verify deployed WAR
+    if ! unzip -t "$JAVA_WAR_DEST" > /dev/null 2>&1; then
+        error "Deployed WAR file is corrupted - deployment failed"
+    fi
+
+    log "Starting Tomcat..."
+    sudo service tomcat start
+
+    # Wait for Tomcat to start and check if deployment succeeded
+    log "Waiting for Tomcat to start..."
+    sleep 5
+    if [ -d "$WEBAPP_DIR" ]; then
+        log "Java webapp deployed successfully!"
+    else
+        warn "Webapp directory not created yet - check Tomcat logs if issues persist"
+    fi
 
     log "Java update complete!"
 }
