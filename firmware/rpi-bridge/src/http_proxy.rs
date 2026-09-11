@@ -357,6 +357,7 @@ impl HttpProxy {
                 content_type: Some("application/json".to_string()),
             })
         }
+    }
 
     /// Handle WiFi status request - returns RPi's WiFi status
     async fn handle_wifi_status(&self, id: u32) -> BridgeResponse {
