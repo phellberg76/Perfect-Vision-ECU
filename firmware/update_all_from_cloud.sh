@@ -364,6 +364,10 @@ update_java() {
     log "Deploying to Tomcat..."
     sudo mv "$WAR_FILE" "$JAVA_WAR_DEST"
 
+    # Ensure tomcat user has GPIO access for Pi4J v2
+    log "Ensuring tomcat user is in gpio group..."
+    sudo usermod -aG gpio tomcat
+
     log "Restarting Tomcat..."
     sudo service tomcat restart
 
