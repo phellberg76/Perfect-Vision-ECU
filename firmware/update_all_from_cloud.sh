@@ -64,7 +64,7 @@ find_esptool() {
     return 1
 }
 
-ESPTOOL=$(find_esptool)
+ESPTOOL=$(find_esptool || true)
 
 if [ -z "$ESPTOOL" ]; then
     echo "[UPDATE] esptool not found, installing in venv..."
@@ -81,7 +81,7 @@ if [ -z "$ESPTOOL" ]; then
     "$VENV_DIR/bin/pip" install --upgrade pip
     "$VENV_DIR/bin/pip" install esptool
 
-    ESPTOOL=$(find_esptool)
+    ESPTOOL=$(find_esptool || true)
     if [ -z "$ESPTOOL" ]; then
         echo "Error: Failed to install esptool"
         exit 1
