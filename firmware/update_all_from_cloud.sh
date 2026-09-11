@@ -368,6 +368,11 @@ update_java() {
     log "Ensuring tomcat user is in gpio group..."
     sudo usermod -aG gpio tomcat
 
+    # Ensure pigpiod is running for Pi4J v2 GPIO access
+    log "Ensuring pigpiod daemon is enabled and running..."
+    sudo systemctl enable pigpiod 2>/dev/null || true
+    sudo systemctl start pigpiod 2>/dev/null || true
+
     log "Restarting Tomcat..."
     sudo service tomcat restart
 
