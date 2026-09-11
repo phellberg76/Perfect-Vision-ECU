@@ -106,6 +106,9 @@ UART_DEV="/dev/ttyAMA0"
 GPIO_EN=17
 GPIO_IO0=27
 
+# Watchdog control
+BRIDGE_WDT_URL="http://localhost:8081"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -115,6 +118,27 @@ NC='\033[0m'
 log() { echo -e "${GREEN}[UPDATE]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# Disable ESP32 watchdog during updates
+disable_watchdog() {
+    log "Disabling ESP32 watchdog for update..."
+    # Try via bridge HTTP first, fall back to direct UART
+    if curl -s --max-time 2 "$BRIDGE_WDT_URL/health" > /dev/null 2>&1; then
+        # Bridge is running, but we need a disable endpoint - use UART instead
+        :
+    fi
+    # Send directly to UART (works even if bridge is stopped)
+    echo '{"cmd":"wdt_disable"}' > "$UART_DEV" 2>/dev/null || true
+    sleep 0.5
+}
+
+# Re-enable ESP32 watchdog after updates
+enable_watchdog() {
+    log "Re-enabling ESP32 watchdog..."
+    # Send directly to UART
+    echo '{"cmd":"wdt_enable"}' > "$UART_DEV" 2>/dev/null || true
+    sleep 0.5
+}
 
 # Hash cache directory (persists between runs)
 HASH_CACHE_DIR="/var/cache/planter-update"
@@ -485,16 +509,24 @@ fi
 
 case "$COMPONENT" in
     esp32)
+        disable_watchdog
         update_esp32
+        enable_watchdog
         ;;
     rust)
+        disable_watchdog
         update_rust
+        enable_watchdog
         ;;
     java)
+        disable_watchdog
         update_java
+        enable_watchdog
         ;;
     all)
         log "=== Updating All Components from Cloud ==="
+        echo ""
+        disable_watchdog
         echo ""
         ensure_system_setup
         echo ""
@@ -503,6 +535,8 @@ case "$COMPONENT" in
         update_rust
         echo ""
         update_java
+        echo ""
+        enable_watchdog
         echo ""
         log "=== All updates complete! ==="
         ;;
