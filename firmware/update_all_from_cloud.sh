@@ -42,27 +42,51 @@ for arg in "$@"; do
     esac
 done
 
-# Find esptool - check venv, system, or pipx
+# Find or install esptool
 FIRMWARE_DIR="/root/Raspberry-Pi-Backup-power-and-GPS-hat-v4/firmware"
-if [ -f "$FIRMWARE_DIR/.venv/bin/python" ]; then
-    ESPTOOL="$FIRMWARE_DIR/.venv/bin/python -m esptool"
-elif command -v esptool.py &> /dev/null; then
-    ESPTOOL="esptool.py"
-elif command -v esptool &> /dev/null; then
-    ESPTOOL="esptool"
-else
-    # Try to find in common locations
-    for path in ~/.local/bin/esptool /usr/local/bin/esptool /usr/bin/esptool; do
-        if [ -x "$path" ]; then
-            ESPTOOL="$path"
-            break
+VENV_DIR="$FIRMWARE_DIR/.venv"
+
+find_esptool() {
+    # Check venv first
+    if [ -f "$VENV_DIR/bin/python" ]; then
+        if "$VENV_DIR/bin/python" -m esptool version &> /dev/null; then
+            echo "$VENV_DIR/bin/python -m esptool"
+            return 0
+        fi
+    fi
+    # Check system installations
+    for cmd in esptool.py esptool ~/.local/bin/esptool /usr/local/bin/esptool /usr/bin/esptool; do
+        if command -v "$cmd" &> /dev/null || [ -x "$cmd" ]; then
+            echo "$cmd"
+            return 0
         fi
     done
-fi
+    return 1
+}
+
+ESPTOOL=$(find_esptool)
 
 if [ -z "$ESPTOOL" ]; then
-    echo "Error: esptool not found. Install with: pip install esptool"
-    exit 1
+    echo "[UPDATE] esptool not found, installing in venv..."
+
+    # Ensure python3-venv is installed
+    if ! python3 -m venv --help &> /dev/null; then
+        echo "[UPDATE] Installing python3-venv..."
+        sudo apt-get update && sudo apt-get install -y python3-venv python3-full
+    fi
+
+    # Create venv and install esptool
+    mkdir -p "$FIRMWARE_DIR"
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install --upgrade pip
+    "$VENV_DIR/bin/pip" install esptool
+
+    ESPTOOL=$(find_esptool)
+    if [ -z "$ESPTOOL" ]; then
+        echo "Error: Failed to install esptool"
+        exit 1
+    fi
+    echo "[UPDATE] esptool installed successfully"
 fi
 
 # Cloud server settings
