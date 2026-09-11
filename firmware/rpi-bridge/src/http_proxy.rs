@@ -313,8 +313,50 @@ impl HttpProxy {
             return Some(self.handle_gps_status(req.id).await);
         }
 
+        // Watchdog pet request - forward to ESP32
+        if path.contains("/petWatchdog") {
+            log::debug!("[{}] Intercepting petWatchdog", req.id);
+            return Some(self.handle_watchdog_pet(req.id).await);
+        }
+
         None
     }
+
+    /// Handle watchdog pet request - forward to ESP32
+    async fn handle_watchdog_pet(&self, id: u32) -> BridgeResponse {
+        // Send wdt_pet command to ESP32 via UART
+        let guard = self.uart_tx.read().await;
+        if let Some(tx) = guard.as_ref() {
+            let cmd = r#"{"cmd":"wdt_pet"}"#.to_string();
+            match tx.send(UartCommand::Send(cmd)).await {
+                Ok(_) => {
+                    log::trace!("Watchdog pet forwarded to ESP32");
+                    BridgeResponse::Http(HttpResponse {
+                        id,
+                        status: 200,
+                        body: r#"{"status":"ok"}"#.to_string(),
+                        content_type: Some("application/json".to_string()),
+                    })
+                }
+                Err(e) => {
+                    log::error!("Failed to forward watchdog pet: {}", e);
+                    BridgeResponse::Http(HttpResponse {
+                        id,
+                        status: 503,
+                        body: r#"{"error":"Failed to send to ESP32"}"#.to_string(),
+                        content_type: Some("application/json".to_string()),
+                    })
+                }
+            }
+        } else {
+            log::warn!("UART not available for watchdog pet");
+            BridgeResponse::Http(HttpResponse {
+                id,
+                status: 503,
+                body: r#"{"error":"UART not available"}"#.to_string(),
+                content_type: Some("application/json".to_string()),
+            })
+        }
 
     /// Handle WiFi status request - returns RPi's WiFi status
     async fn handle_wifi_status(&self, id: u32) -> BridgeResponse {

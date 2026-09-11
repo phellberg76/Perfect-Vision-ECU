@@ -27,6 +27,7 @@ use esp32_state::{Esp32Message, SharedEsp32State};
 use http_proxy::HttpProxy;
 use std::sync::mpsc;
 use uart_bridge::{spawn_uart_bridge, UartCommand, UartEvent};
+use warp::Filter;
 
 /// Planter BLE Bridge - BLE/UART to HTTP proxy for Planter App
 #[derive(Parser, Debug)]
@@ -55,6 +56,10 @@ struct Args {
     /// Enable debug logging
     #[arg(short, long)]
     debug: bool,
+
+    /// Watchdog HTTP server port (Java calls this to pet ESP32 watchdog)
+    #[arg(long, default_value = "8081")]
+    wdt_port: u16,
 }
 
 #[tokio::main]
@@ -119,29 +124,40 @@ async fn run_uart_mode(
 
     log::info!("UART bridge started, waiting for messages from ESP32...");
 
-    // Spawn UART heartbeat task to keep ESP32 watchdog happy
-    // Only sends heartbeat if Java backend is reachable (confirms whole stack is healthy)
-    let heartbeat_tx = command_tx.clone();
-    let heartbeat_proxy = proxy.clone();
+    // Spawn HTTP server for watchdog endpoint (Java calls this)
+    let wdt_tx = command_tx.clone();
+    let wdt_port = args.wdt_port;
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
-        loop {
-            interval.tick().await;
-
-            // Check if Java backend is responding before sending heartbeat
-            // This ensures we only pet the watchdog when the whole stack is healthy
-            if heartbeat_proxy.check_health().await {
-                let heartbeat_cmd = r#"{"cmd":"wdt_pet"}"#.to_string();
-                if let Err(e) = heartbeat_tx.send(UartCommand::Send(heartbeat_cmd)).await {
-                    log::error!("Failed to send UART heartbeat: {}", e);
-                    break;
+        // GET /petWatchdog - forwards wdt_pet to ESP32
+        let pet_watchdog = warp::path("petWatchdog")
+            .and(warp::get())
+            .and(warp::any().map(move || wdt_tx.clone()))
+            .and_then(|tx: tokio::sync::mpsc::Sender<UartCommand>| async move {
+                let cmd = r#"{"cmd":"wdt_pet"}"#.to_string();
+                match tx.send(UartCommand::Send(cmd)).await {
+                    Ok(_) => {
+                        log::trace!("Watchdog pet forwarded to ESP32");
+                        Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({"status": "ok"})))
+                    }
+                    Err(e) => {
+                        log::error!("Failed to forward watchdog pet: {}", e);
+                        Ok(warp::reply::json(&serde_json::json!({"error": "Failed to send to ESP32"})))
+                    }
                 }
-                log::trace!("UART heartbeat sent to ESP32 (backend healthy)");
-            } else {
-                log::warn!("Skipping UART heartbeat - Java backend not responding");
-            }
-        }
+            });
+
+        // GET /health - simple health check
+        let health = warp::path("health")
+            .and(warp::get())
+            .map(|| warp::reply::json(&serde_json::json!({"status": "ok"})));
+
+        let routes = pet_watchdog.or(health);
+
+        log::info!("Watchdog HTTP server listening on port {}", wdt_port);
+        warp::serve(routes).run(([0, 0, 0, 0], wdt_port)).await;
     });
+
+    log::info!("ESP32 watchdog: Java must call http://localhost:{}/petWatchdog", args.wdt_port);
 
     // Main event loop
     loop {

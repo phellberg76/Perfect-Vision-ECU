@@ -46,6 +46,9 @@ serialport = "4.3"
 # URL encoding for parsing query parameters
 urlencoding = "2.1"
 
+# HTTP server for Java watchdog endpoint
+warp = "0.3"
+
 # OpenSSL - vendored for cross-compilation
 openssl = { version = "0.10", features = ["vendored"] }
 
