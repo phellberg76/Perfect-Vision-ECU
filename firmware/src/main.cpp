@@ -103,10 +103,12 @@ unsigned long bootTime = 0;
 // Watchdog State
 volatile unsigned long lastWdtPulse = 0;    // Last time heartbeat changed
 volatile bool lastWdtState = false;          // Last heartbeat GPIO state
+volatile int wdtPulseCount = 0;              // Pulse count for logging
 bool wdtEnabled = true;                      // Watchdog enabled
 bool wdtTriggered = false;                   // Has watchdog triggered a reset?
 unsigned long wdtResetTime = 0;              // Time of last reset
 int wdtResetCount = 0;                       // Number of resets since power on
+unsigned long lastWdtLog = 0;                // Last watchdog log time
 
 // WiFi State
 bool wifiConfigured = false;
@@ -609,6 +611,7 @@ void handleUartCommand(const String& cmdJson) {
 // ISR for heartbeat GPIO transitions
 void IRAM_ATTR wdtHeartbeatISR() {
     lastWdtPulse = millis();
+    wdtPulseCount++;
 }
 
 void setupWatchdog() {
@@ -636,14 +639,45 @@ void setupWatchdog() {
 }
 
 void processWatchdog() {
-    if (!wdtEnabled) {
-        return;
-    }
-
     unsigned long now = millis();
     unsigned long elapsed = now - lastWdtPulse;
     unsigned long sinceAlert = now - wdtResetTime;
     unsigned long sinceBoot = now - bootTime;
+    bool currentPinState = digitalRead(PIN_WDT_HEARTBEAT);
+    static int lastLoggedPulseCount = 0;
+
+    // Periodic USB logging every 5 seconds
+    if (now - lastWdtLog >= 5000) {
+        lastWdtLog = now;
+        int newPulses = wdtPulseCount - lastLoggedPulseCount;
+        lastLoggedPulseCount = wdtPulseCount;
+
+        const char* status;
+        if (!wdtEnabled) {
+            status = "DISABLED";
+        } else if (sinceBoot < WDT_STARTUP_GRACE_MS) {
+            status = "GRACE(boot)";
+        } else if (wdtTriggered && sinceAlert < WDT_STARTUP_GRACE_MS) {
+            status = "GRACE(reset)";
+        } else if (elapsed > WDT_TIMEOUT_MS / 2) {
+            status = "WARNING";
+        } else {
+            status = "OK";
+        }
+
+        Serial.printf("[WDT] status=%s pin=%s elapsed=%lums pulses=%d(+%d) timeout=%dms resets=%d\n",
+            status,
+            currentPinState ? "HIGH" : "LOW",
+            elapsed,
+            wdtPulseCount,
+            newPulses,
+            WDT_TIMEOUT_MS,
+            wdtResetCount);
+    }
+
+    if (!wdtEnabled) {
+        return;
+    }
 
     // Grace period after boot - don't trigger alert while RPi is booting
     if (sinceBoot < WDT_STARTUP_GRACE_MS) {
