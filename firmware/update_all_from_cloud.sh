@@ -368,10 +368,15 @@ update_java() {
     log "Ensuring tomcat user is in gpio group..."
     sudo usermod -aG gpio tomcat
 
-    # Ensure pigpiod is running for Pi4J v2 GPIO access
+    # Install and enable pigpiod for Pi4J v2 GPIO access
+    if ! command -v pigpiod &> /dev/null; then
+        log "Installing pigpio package..."
+        sudo apt-get update
+        sudo apt-get install -y pigpio
+    fi
     log "Ensuring pigpiod daemon is enabled and running..."
-    sudo systemctl enable pigpiod 2>/dev/null || true
-    sudo systemctl start pigpiod 2>/dev/null || true
+    sudo systemctl enable pigpiod
+    sudo systemctl start pigpiod
 
     log "Restarting Tomcat..."
     sudo service tomcat restart
