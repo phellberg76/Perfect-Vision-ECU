@@ -370,21 +370,30 @@ update_rust() {
     mkdir -p "$TMP_DIR"
 
     # Ensure systemd service is installed and not masked
-    if [ ! -f /etc/systemd/system/planter-ble-bridge.service ]; then
+    SERVICE_FILE="/etc/systemd/system/planter-ble-bridge.service"
+    NEEDS_INSTALL=false
+
+    # Check if masked (symlink to /dev/null) or missing
+    if [ -L "$SERVICE_FILE" ]; then
+        # It's a symlink - check if it points to /dev/null (masked)
+        if [ "$(readlink -f "$SERVICE_FILE")" = "/dev/null" ]; then
+            log "Service is masked, removing mask..."
+            sudo rm -f "$SERVICE_FILE"
+            sudo systemctl daemon-reload
+            NEEDS_INSTALL=true
+        fi
+    elif [ ! -f "$SERVICE_FILE" ]; then
+        NEEDS_INSTALL=true
+    fi
+
+    if [ "$NEEDS_INSTALL" = true ]; then
         log "Installing planter-ble-bridge systemd service..."
         scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-ble-bridge.service" "$TMP_DIR/" \
             || error "Failed to fetch service file"
-        sudo cp "$TMP_DIR/planter-ble-bridge.service" /etc/systemd/system/
+        sudo cp "$TMP_DIR/planter-ble-bridge.service" "$SERVICE_FILE"
         sudo systemctl daemon-reload
         sudo systemctl enable planter-ble-bridge.service
         log "Service installed and enabled"
-    fi
-
-    # Unmask service if it was masked
-    if systemctl is-enabled planter-ble-bridge.service 2>&1 | grep -q "masked"; then
-        log "Unmasking planter-ble-bridge service..."
-        sudo systemctl unmask planter-ble-bridge.service
-        sudo systemctl enable planter-ble-bridge.service
     fi
 
     log "Checking for Rust binary changes..."
