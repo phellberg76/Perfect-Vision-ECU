@@ -369,7 +369,7 @@ update_rust() {
 
     mkdir -p "$TMP_DIR"
 
-    # Ensure systemd service is installed
+    # Ensure systemd service is installed and not masked
     if [ ! -f /etc/systemd/system/planter-ble-bridge.service ]; then
         log "Installing planter-ble-bridge systemd service..."
         scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-ble-bridge.service" "$TMP_DIR/" \
@@ -378,6 +378,13 @@ update_rust() {
         sudo systemctl daemon-reload
         sudo systemctl enable planter-ble-bridge.service
         log "Service installed and enabled"
+    fi
+
+    # Unmask service if it was masked
+    if systemctl is-enabled planter-ble-bridge.service 2>&1 | grep -q "masked"; then
+        log "Unmasking planter-ble-bridge service..."
+        sudo systemctl unmask planter-ble-bridge.service
+        sudo systemctl enable planter-ble-bridge.service
     fi
 
     log "Checking for Rust binary changes..."
