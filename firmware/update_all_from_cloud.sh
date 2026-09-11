@@ -122,29 +122,33 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # Disable ESP32 watchdog during updates
 disable_watchdog() {
     log "Disabling ESP32 watchdog for update..."
-    # Try via bridge HTTP endpoint
-    if curl -s --max-time 3 "$BRIDGE_WDT_URL/disableWatchdog" > /dev/null 2>&1; then
-        log "Watchdog disabled via bridge HTTP"
-    else
-        # Fallback: send directly to UART (may not work if bridge has port open)
-        warn "Bridge not available, trying direct UART..."
-        echo '{"cmd":"wdt_disable"}' > "$UART_DEV" 2>/dev/null || true
-    fi
+
+    # Stop bridge service first so we can access UART directly
+    sudo systemctl stop planter-ble-bridge.service 2>/dev/null || true
+    sleep 1
+
+    # Send disable command directly to UART
+    echo '{"cmd":"wdt_disable"}' > "$UART_DEV" 2>/dev/null || true
     sleep 0.5
+    log "Watchdog disabled, bridge stopped"
 }
 
 # Re-enable ESP32 watchdog after updates
 enable_watchdog() {
     log "Re-enabling ESP32 watchdog..."
-    # Try via bridge HTTP endpoint
+
+    # Start bridge service first
+    sudo systemctl start planter-ble-bridge.service 2>/dev/null || true
+    sleep 2
+
+    # Enable watchdog via bridge HTTP
     if curl -s --max-time 3 "$BRIDGE_WDT_URL/enableWatchdog" > /dev/null 2>&1; then
         log "Watchdog enabled via bridge HTTP"
     else
-        # Fallback: send directly to UART
-        warn "Bridge not available, trying direct UART..."
+        # Fallback: direct UART (bridge may not be ready yet)
         echo '{"cmd":"wdt_enable"}' > "$UART_DEV" 2>/dev/null || true
+        log "Watchdog enabled via UART"
     fi
-    sleep 0.5
 }
 
 # Hash cache directory (persists between runs)
