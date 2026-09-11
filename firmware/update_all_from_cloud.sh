@@ -122,21 +122,28 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # Disable ESP32 watchdog during updates
 disable_watchdog() {
     log "Disabling ESP32 watchdog for update..."
-    # Try via bridge HTTP first, fall back to direct UART
-    if curl -s --max-time 2 "$BRIDGE_WDT_URL/health" > /dev/null 2>&1; then
-        # Bridge is running, but we need a disable endpoint - use UART instead
-        :
+    # Try via bridge HTTP endpoint
+    if curl -s --max-time 3 "$BRIDGE_WDT_URL/disableWatchdog" > /dev/null 2>&1; then
+        log "Watchdog disabled via bridge HTTP"
+    else
+        # Fallback: send directly to UART (may not work if bridge has port open)
+        warn "Bridge not available, trying direct UART..."
+        echo '{"cmd":"wdt_disable"}' > "$UART_DEV" 2>/dev/null || true
     fi
-    # Send directly to UART (works even if bridge is stopped)
-    echo '{"cmd":"wdt_disable"}' > "$UART_DEV" 2>/dev/null || true
     sleep 0.5
 }
 
 # Re-enable ESP32 watchdog after updates
 enable_watchdog() {
     log "Re-enabling ESP32 watchdog..."
-    # Send directly to UART
-    echo '{"cmd":"wdt_enable"}' > "$UART_DEV" 2>/dev/null || true
+    # Try via bridge HTTP endpoint
+    if curl -s --max-time 3 "$BRIDGE_WDT_URL/enableWatchdog" > /dev/null 2>&1; then
+        log "Watchdog enabled via bridge HTTP"
+    else
+        # Fallback: send directly to UART
+        warn "Bridge not available, trying direct UART..."
+        echo '{"cmd":"wdt_enable"}' > "$UART_DEV" 2>/dev/null || true
+    fi
     sleep 0.5
 }
 

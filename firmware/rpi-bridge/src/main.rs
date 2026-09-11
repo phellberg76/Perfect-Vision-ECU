@@ -126,6 +126,8 @@ async fn run_uart_mode(
 
     // Spawn HTTP server for watchdog endpoint (Java calls this)
     let wdt_tx = command_tx.clone();
+    let wdt_tx2 = command_tx.clone();
+    let wdt_tx3 = command_tx.clone();
     let wdt_port = args.wdt_port;
     tokio::spawn(async move {
         // GET /petWatchdog - forwards wdt_pet to ESP32
@@ -146,12 +148,48 @@ async fn run_uart_mode(
                 }
             });
 
+        // GET /disableWatchdog - disable ESP32 watchdog (for updates)
+        let disable_watchdog = warp::path("disableWatchdog")
+            .and(warp::get())
+            .and(warp::any().map(move || wdt_tx2.clone()))
+            .and_then(|tx: tokio::sync::mpsc::Sender<UartCommand>| async move {
+                let cmd = r#"{"cmd":"wdt_disable"}"#.to_string();
+                match tx.send(UartCommand::Send(cmd)).await {
+                    Ok(_) => {
+                        log::info!("Watchdog DISABLED via HTTP");
+                        Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({"status": "disabled"})))
+                    }
+                    Err(e) => {
+                        log::error!("Failed to disable watchdog: {}", e);
+                        Ok(warp::reply::json(&serde_json::json!({"error": "Failed to send to ESP32"})))
+                    }
+                }
+            });
+
+        // GET /enableWatchdog - enable ESP32 watchdog (after updates)
+        let enable_watchdog = warp::path("enableWatchdog")
+            .and(warp::get())
+            .and(warp::any().map(move || wdt_tx3.clone()))
+            .and_then(|tx: tokio::sync::mpsc::Sender<UartCommand>| async move {
+                let cmd = r#"{"cmd":"wdt_enable"}"#.to_string();
+                match tx.send(UartCommand::Send(cmd)).await {
+                    Ok(_) => {
+                        log::info!("Watchdog ENABLED via HTTP");
+                        Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({"status": "enabled"})))
+                    }
+                    Err(e) => {
+                        log::error!("Failed to enable watchdog: {}", e);
+                        Ok(warp::reply::json(&serde_json::json!({"error": "Failed to send to ESP32"})))
+                    }
+                }
+            });
+
         // GET /health - simple health check
         let health = warp::path("health")
             .and(warp::get())
             .map(|| warp::reply::json(&serde_json::json!({"status": "ok"})));
 
-        let routes = pet_watchdog.or(health);
+        let routes = pet_watchdog.or(disable_watchdog).or(enable_watchdog).or(health);
 
         log::info!("Watchdog HTTP server listening on port {}", wdt_port);
         warp::serve(routes).run(([0, 0, 0, 0], wdt_port)).await;
