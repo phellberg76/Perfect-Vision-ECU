@@ -557,9 +557,10 @@ install_shutdown_monitor() {
 
     if [ "$NEEDS_INSTALL" = true ] || [ "$FORCE_UPDATE" = true ]; then
         log "Downloading shutdown monitor script and service..."
-        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-shutdown-monitor.sh" "$TMP_DIR/" \
+        mkdir -p "$TMP_DIR"
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-shutdown-monitor.sh" "$TMP_DIR/planter-shutdown-monitor.sh" \
             || error "Failed to fetch shutdown monitor script"
-        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-shutdown-monitor.service" "$TMP_DIR/" \
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-shutdown-monitor.service" "$TMP_DIR/planter-shutdown-monitor.service" \
             || error "Failed to fetch shutdown monitor service"
 
         log "Installing shutdown monitor..."
