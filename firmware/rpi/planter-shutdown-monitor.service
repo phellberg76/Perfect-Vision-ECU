@@ -1,0 +1,19 @@
+[Unit]
+Description=Planter Shutdown Monitor - watches for shutdown/reboot requests
+After=network.target tomcat.service planter-ble-bridge.service
+Wants=tomcat.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/planter-shutdown-monitor.sh
+Restart=always
+RestartSec=10
+User=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=planter-shutdown-monitor
+
+[Install]
+WantedBy=multi-user.target

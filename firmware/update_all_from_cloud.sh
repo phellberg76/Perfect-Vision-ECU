@@ -525,6 +525,59 @@ ensure_system_setup() {
     else
         log "pigpiod already running"
     fi
+
+    # Install shutdown monitor service
+    install_shutdown_monitor
+}
+
+# Install the shutdown monitor service
+install_shutdown_monitor() {
+    log "=== Installing Shutdown Monitor Service ==="
+
+    SHUTDOWN_SCRIPT="/usr/local/bin/planter-shutdown-monitor.sh"
+    SHUTDOWN_SERVICE="/etc/systemd/system/planter-shutdown-monitor.service"
+    NEEDS_INSTALL=false
+
+    # Check if service is masked or missing
+    if [ -L "$SHUTDOWN_SERVICE" ]; then
+        if [ "$(readlink -f "$SHUTDOWN_SERVICE")" = "/dev/null" ]; then
+            log "Shutdown monitor service is masked, removing mask..."
+            sudo rm -f "$SHUTDOWN_SERVICE"
+            sudo systemctl daemon-reload
+            NEEDS_INSTALL=true
+        fi
+    elif [ ! -f "$SHUTDOWN_SERVICE" ]; then
+        NEEDS_INSTALL=true
+    fi
+
+    # Check if script exists and is up to date
+    if [ ! -f "$SHUTDOWN_SCRIPT" ]; then
+        NEEDS_INSTALL=true
+    fi
+
+    if [ "$NEEDS_INSTALL" = true ] || [ "$FORCE_UPDATE" = true ]; then
+        log "Downloading shutdown monitor script and service..."
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-shutdown-monitor.sh" "$TMP_DIR/" \
+            || error "Failed to fetch shutdown monitor script"
+        scp -P "$CLOUD_PORT" "$CLOUD_HOST:$CLOUD_BASE/rpi/planter-shutdown-monitor.service" "$TMP_DIR/" \
+            || error "Failed to fetch shutdown monitor service"
+
+        log "Installing shutdown monitor..."
+        sudo cp "$TMP_DIR/planter-shutdown-monitor.sh" "$SHUTDOWN_SCRIPT"
+        sudo chmod +x "$SHUTDOWN_SCRIPT"
+        sudo cp "$TMP_DIR/planter-shutdown-monitor.service" "$SHUTDOWN_SERVICE"
+        sudo systemctl daemon-reload
+        sudo systemctl enable planter-shutdown-monitor.service
+        sudo systemctl restart planter-shutdown-monitor.service
+        log "Shutdown monitor installed and started"
+    else
+        log "Shutdown monitor already installed"
+        # Ensure it's running
+        if ! systemctl is-active --quiet planter-shutdown-monitor.service; then
+            log "Starting shutdown monitor service..."
+            sudo systemctl start planter-shutdown-monitor.service
+        fi
+    fi
 }
 
 # Main
