@@ -68,7 +68,7 @@
 #define BLE_DEVICE_NAME    "PerfectPrecisionPlanter"
 
 // Watchdog settings (for monitoring RPi)
-#define WDT_TIMEOUT_MS         30000   // 30 seconds without heartbeat triggers reset
+#define WDT_TIMEOUT_MS         60000   // 60 seconds without heartbeat triggers reset
 #define WDT_RESET_PULSE_MS     200     // Reset pulse duration
 #define WDT_STARTUP_GRACE_MS   60000   // 60 second grace period after boot/reset
 
