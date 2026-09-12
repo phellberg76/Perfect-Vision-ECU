@@ -55,6 +55,9 @@
 // For full reset: jumper RPi GPIO6 to GLOBAL_EN on CM4 IO Board J2 pin 1
 #define PIN_WDT_RESET      4   // ESP32 IO4 -> 4N25 optocoupler -> GLOBAL_EN
 
+// Ignition sense (tractor power detection via voltage divider)
+#define PIN_IGNITION       34  // ADC input - voltage divider from 12V/24V ignition
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -74,6 +77,14 @@
 
 // ESP32 hardware watchdog (self-monitoring)
 #define ESP32_WDT_TIMEOUT_S    10      // 10 seconds - reset ESP32 if main loop hangs
+
+// Ignition detection settings
+// Voltage divider: 470k/100k gives V_out = V_in * 0.175
+// At 12V ignition: 2.1V -> ADC ~2600 (12-bit, 3.3V ref)
+// Threshold 1500 gives good noise margin
+#define IGN_ADC_THRESHOLD      1500    // ADC value above this = ignition ON
+#define IGN_DEBOUNCE_MS        500     // Debounce time for ignition state changes
+#define IGN_CHECK_INTERVAL_MS  200     // How often to check ignition state
 
 // WiFi credentials storage key
 #define WIFI_PREFS_NAMESPACE  "wifi"
@@ -106,6 +117,12 @@ bool wdtTriggered = false;                   // Has watchdog triggered a reset?
 unsigned long wdtResetTime = 0;              // Time of last reset
 int wdtResetCount = 0;                       // Number of resets since power on
 unsigned long lastWdtLog = 0;                // Last watchdog log time
+
+// Ignition State
+bool ignitionOn = false;                     // Current ignition state
+bool lastIgnitionState = false;              // Previous state for edge detection
+unsigned long lastIgnitionChange = 0;        // Time of last state change (for debounce)
+unsigned long lastIgnitionCheck = 0;         // Last time we checked ignition
 
 // WiFi State
 bool wifiConfigured = false;
@@ -142,6 +159,8 @@ void setupWatchdog();
 void processWatchdog();
 void triggerReset();
 void sendEsp32Status();
+void setupIgnition();
+void processIgnition();
 
 // =============================================================================
 // Setup
@@ -203,6 +222,12 @@ void setup() {
     setupWatchdog();
     Serial.println("[INIT] Watchdog OK");
 
+    // Initialize Ignition sensing
+    Serial.println("[INIT] Ignition sense...");
+    RPI_Serial.println("{\"type\":\"init\",\"step\":\"ignition\"}");
+    setupIgnition();
+    Serial.println("[INIT] Ignition OK");
+
     // Initialize ESP32 hardware watchdog (self-monitoring)
     Serial.println("[INIT] ESP32 hardware watchdog...");
     esp_task_wdt_init(ESP32_WDT_TIMEOUT_S, true);  // timeout in seconds, panic on timeout
@@ -239,6 +264,9 @@ void loop() {
 
     // Process watchdog (check for heartbeat timeout)
     processWatchdog();
+
+    // Process ignition state (tractor power detection)
+    processIgnition();
 
     // Update GPS JSON and send to RPi periodically
     if (now - lastGpsUpdate >= GPS_UPDATE_MS) {
@@ -731,4 +759,77 @@ void sendEsp32Status() {
 
     bleBridge.sendToClient(status);
     Serial.println("[ADMIN] ESP32 status sent via BLE");
+}
+
+// =============================================================================
+// Ignition Sensing (Tractor Power Detection)
+// =============================================================================
+
+void setupIgnition() {
+    // Configure GPIO34 as analog input
+    // ESP32-S3 ADC1 channel - no special setup needed for analogRead()
+    pinMode(PIN_IGNITION, INPUT);
+
+    // Read initial state
+    int adcValue = analogRead(PIN_IGNITION);
+    ignitionOn = (adcValue > IGN_ADC_THRESHOLD);
+    lastIgnitionState = ignitionOn;
+    lastIgnitionChange = millis();
+    lastIgnitionCheck = millis();
+
+    Serial.printf("[IGN] Initial state: %s (ADC=%d, threshold=%d)\n",
+                  ignitionOn ? "ON" : "OFF", adcValue, IGN_ADC_THRESHOLD);
+
+    // Send initial state to RPi
+    String msg = "{\"type\":\"ignition\",\"on\":";
+    msg += ignitionOn ? "true" : "false";
+    msg += ",\"adc\":";
+    msg += String(adcValue);
+    msg += "}";
+    RPI_Serial.println(msg);
+}
+
+void processIgnition() {
+    unsigned long now = millis();
+
+    // Only check at configured interval
+    if (now - lastIgnitionCheck < IGN_CHECK_INTERVAL_MS) {
+        return;
+    }
+    lastIgnitionCheck = now;
+
+    // Read ADC
+    int adcValue = analogRead(PIN_IGNITION);
+    bool currentState = (adcValue > IGN_ADC_THRESHOLD);
+
+    // Check for state change
+    if (currentState != lastIgnitionState) {
+        // State changed - start debounce
+        if (now - lastIgnitionChange >= IGN_DEBOUNCE_MS) {
+            // Debounce period passed, accept the new state
+            ignitionOn = currentState;
+            lastIgnitionState = currentState;
+            lastIgnitionChange = now;
+
+            Serial.printf("[IGN] State changed: %s (ADC=%d)\n",
+                          ignitionOn ? "ON" : "OFF", adcValue);
+
+            // Send state change to RPi via UART
+            // The Rust bridge will forward this to the Java app's tractorPower endpoint
+            String msg = "{\"type\":\"ignition\",\"on\":";
+            msg += ignitionOn ? "true" : "false";
+            msg += ",\"adc\":";
+            msg += String(adcValue);
+            msg += "}";
+            RPI_Serial.println(msg);
+
+            // Also notify BLE client if connected
+            if (bleBridge.isConnected()) {
+                bleBridge.sendToClient(msg);
+            }
+        }
+    } else {
+        // State stable - reset debounce timer
+        lastIgnitionChange = now;
+    }
 }

@@ -169,6 +169,9 @@ pub enum Esp32Message {
 
     #[serde(rename = "error")]
     Error { msg: String },
+
+    #[serde(rename = "ignition")]
+    Ignition { on: bool, adc: Option<i32> },
 }
 
 #[cfg(test)]

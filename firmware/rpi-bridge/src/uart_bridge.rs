@@ -123,6 +123,9 @@ fn run_uart_bridge(
                     } else if trimmed.starts_with("{\"type\":\"wifi\"") {
                         log::info!("UART WiFi message received");
                         let _ = event_tx.send(UartEvent::MessageReceived(trimmed));
+                    } else if trimmed.starts_with("{\"type\":\"ignition\"") {
+                        log::info!("UART Ignition message received: {}", trimmed);
+                        let _ = event_tx.send(UartEvent::MessageReceived(trimmed));
                     } else {
                         log::debug!("UART received: {}", trimmed);
                         let _ = event_tx.send(UartEvent::MessageReceived(trimmed));

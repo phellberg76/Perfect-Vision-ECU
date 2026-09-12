@@ -236,6 +236,21 @@ async fn run_uart_mode(
                                     }
                                 });
                             }
+                            // Forward ignition state to Java backend tractorPower endpoint
+                            if let Esp32Message::Ignition { on, adc } = &esp32_msg {
+                                log::info!(
+                                    "Forwarding ignition state to Java: on={}, adc={:?}",
+                                    on, adc
+                                );
+                                let client = gps_forward_client.clone();
+                                let url = format!("{}/planter_app/service/tractorPower?on={}", backend_url, on);
+                                tokio::spawn(async move {
+                                    match client.get(&url).send().await {
+                                        Ok(resp) => log::info!("Ignition forward response: {}", resp.status()),
+                                        Err(e) => log::warn!("Failed to forward ignition to Java: {}", e),
+                                    }
+                                });
+                            }
                             handle_esp32_message(&esp32_state, esp32_msg);
                             continue;
                         }
@@ -354,6 +369,9 @@ fn handle_esp32_message(state: &SharedEsp32State, msg: Esp32Message) {
         }
         Esp32Message::Error { msg } => {
             log::error!("ESP32 error: {}", msg);
+        }
+        Esp32Message::Ignition { on, adc } => {
+            log::info!("Ignition state: on={}, adc={:?}", on, adc);
         }
     }
 }
