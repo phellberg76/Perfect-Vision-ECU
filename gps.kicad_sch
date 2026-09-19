@@ -175,6 +175,306 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Device:C"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 0.254)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "C"
+				(at 0.635 2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Value" "C"
+				(at 0.635 -2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Footprint" ""
+				(at 0.9652 -3.81 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Unpolarized capacitor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "cap capacitor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "C_*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "C_0_1"
+				(polyline
+					(pts
+						(xy -2.032 0.762) (xy 2.032 0.762)
+					)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -2.032 -0.762) (xy 2.032 -0.762)
+					)
+					(stroke
+						(width 0.508)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "C_1_1"
+				(pin passive line
+					(at 0 3.81 270)
+					(length 2.794)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 0 -3.81 90)
+					(length 2.794)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
+		(symbol "Device:C_Polarized"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 0.254)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "C"
+				(at 0.635 2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Value" "C_Polarized"
+				(at 0.635 -2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Footprint" ""
+				(at 0.9652 -3.81 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Polarized capacitor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "cap capacitor"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "CP_*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "C_Polarized_0_1"
+				(rectangle
+					(start -2.286 0.508)
+					(end 2.286 1.016)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.778 2.286) (xy -0.762 2.286)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy -1.27 2.794) (xy -1.27 1.778)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(rectangle
+					(start 2.286 -0.508)
+					(end -2.286 -1.016)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type outline)
+					)
+				)
+			)
+			(symbol "C_Polarized_1_1"
+				(pin passive line
+					(at 0 3.81 270)
+					(length 2.794)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 0 -3.81 90)
+					(length 2.794)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Device:D_Zener"
 			(pin_numbers
 				(hide yes)
@@ -594,6 +894,156 @@
 					(at 0 -3.81 90)
 					(length 1.27)
 					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
+		(symbol "Diode:BAT54J"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 1.016)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "D"
+				(at 0 2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "BAT54J"
+				(at 0 -2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "Diode_SMD:D_SOD-323F"
+				(at 0 -4.445 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/BAT54J.pdf"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "30V 200mA Schottky diode, SOD-323F"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "diode Schottky"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "D*SOD?323F*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "BAT54J_0_1"
+				(polyline
+					(pts
+						(xy -1.905 0.635) (xy -1.905 1.27) (xy -1.27 1.27) (xy -1.27 -1.27) (xy -0.635 -1.27) (xy -0.635 -0.635)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 1.27 1.27) (xy 1.27 -1.27) (xy -1.27 0) (xy 1.27 1.27)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 1.27 0) (xy -1.27 0)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "BAT54J_1_1"
+				(pin passive line
+					(at -3.81 0 0)
+					(length 2.54)
+					(name "K"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 3.81 0 180)
+					(length 2.54)
+					(name "A"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1399,22 +1849,46 @@
 		(uuid "09d4e557-db78-41a3-b0ab-e228f37b8fc5")
 	)
 	(junction
-		(at 195.58 82.55)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "0de9e11e-4fbf-40b2-a4fc-b775d92289cc")
-	)
-	(junction
 		(at 66.04 85.09)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "370c6a43-2a3d-462d-9dd0-b8b0f97cfd4a")
 	)
 	(junction
+		(at 190.5 80.01)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "3d363941-a5e9-4807-8513-74afd1e11fd1")
+	)
+	(junction
+		(at 195.58 72.39)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "45044f9d-22aa-48eb-bbe0-b4c753ef5c3d")
+	)
+	(junction
 		(at 91.44 95.25)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "5ba865ae-de34-44d5-83f7-a2e0cea86fcb")
+	)
+	(junction
+		(at 201.93 82.55)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "83e674b8-82ae-4135-a436-7004b66899d7")
+	)
+	(junction
+		(at 190.5 72.39)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "94a512f2-b3b5-44ab-9613-7d12816bf82d")
+	)
+	(junction
+		(at 195.58 80.01)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "961584ed-8578-460c-ac61-6e3fbacd26fe")
 	)
 	(junction
 		(at 76.2 114.3)
@@ -1496,6 +1970,26 @@
 	)
 	(wire
 		(pts
+			(xy 201.93 80.01) (xy 195.58 80.01)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3403bd6f-01cc-4942-8da4-334d6a9aba18")
+	)
+	(wire
+		(pts
+			(xy 229.87 82.55) (xy 232.41 82.55)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "45c7228d-f267-4124-a013-268a2109ffa7")
+	)
+	(wire
+		(pts
 			(xy 91.44 97.79) (xy 106.68 97.79)
 		)
 		(stroke
@@ -1526,6 +2020,16 @@
 	)
 	(wire
 		(pts
+			(xy 201.93 72.39) (xy 195.58 72.39)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4c76cfc2-6c48-4686-a8a1-588e0e1d4208")
+	)
+	(wire
+		(pts
 			(xy 83.82 97.79) (xy 91.44 97.79)
 		)
 		(stroke
@@ -1546,6 +2050,16 @@
 	)
 	(wire
 		(pts
+			(xy 201.93 90.17) (xy 201.93 92.71)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5c824b9c-1244-40eb-969f-0b753b300d71")
+	)
+	(wire
+		(pts
 			(xy 60.96 85.09) (xy 66.04 85.09)
 		)
 		(stroke
@@ -1553,6 +2067,26 @@
 			(type default)
 		)
 		(uuid "5e14bfc0-660e-4256-9d4c-e328533c64fe")
+	)
+	(wire
+		(pts
+			(xy 190.5 80.01) (xy 195.58 80.01)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "5fd63656-c166-42d8-8a11-d884f55111b5")
+	)
+	(wire
+		(pts
+			(xy 182.88 72.39) (xy 182.88 77.47)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "62c4ee2e-8095-4976-af6a-23328aca5aa1")
 	)
 	(wire
 		(pts
@@ -1566,7 +2100,7 @@
 	)
 	(wire
 		(pts
-			(xy 182.88 82.55) (xy 195.58 82.55)
+			(xy 182.88 82.55) (xy 201.93 82.55)
 		)
 		(stroke
 			(width 0)
@@ -1586,7 +2120,7 @@
 	)
 	(wire
 		(pts
-			(xy 182.88 80.01) (xy 195.58 80.01)
+			(xy 182.88 80.01) (xy 190.5 80.01)
 		)
 		(stroke
 			(width 0)
@@ -1606,23 +2140,23 @@
 	)
 	(wire
 		(pts
-			(xy 182.88 77.47) (xy 194.31 77.47)
+			(xy 218.44 82.55) (xy 222.25 82.55)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "848e8393-9d63-4387-8cce-d25cc8044489")
+	)
+	(wire
+		(pts
+			(xy 190.5 72.39) (xy 195.58 72.39)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
 		(uuid "8774287e-c956-46fd-9616-ef9f0d75bc71")
-	)
-	(wire
-		(pts
-			(xy 195.58 80.01) (xy 195.58 82.55)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "88e92336-7ccd-43bd-9ca0-d8974a2949d1")
 	)
 	(wire
 		(pts
@@ -1683,6 +2217,16 @@
 			(type default)
 		)
 		(uuid "9fe9bc9b-4f59-4b18-b8d6-e59d53dfe47c")
+	)
+	(wire
+		(pts
+			(xy 190.5 72.39) (xy 182.88 72.39)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ae5b2d37-1d56-4761-a005-ccd9fb275a02")
 	)
 	(wire
 		(pts
@@ -1764,6 +2308,16 @@
 		)
 		(uuid "e8ff5ead-ef8a-4d67-ba49-1de7f8ca5ace")
 	)
+	(wire
+		(pts
+			(xy 201.93 82.55) (xy 210.82 82.55)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ee43be8d-c7bd-45b0-bc66-21cdca41a768")
+	)
 	(global_label "V_TRACTOR"
 		(shape input)
 		(at 44.45 85.09 180)
@@ -1786,7 +2340,7 @@
 			)
 		)
 	)
-	(global_label "TXD1"
+	(global_label "TXD0"
 		(shape input)
 		(at 186.69 85.09 0)
 		(fields_autoplaced yes)
@@ -1808,7 +2362,7 @@
 			)
 		)
 	)
-	(global_label "RXD1"
+	(global_label "RXD0"
 		(shape input)
 		(at 186.69 87.63 0)
 		(fields_autoplaced yes)
@@ -1854,7 +2408,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 194.31 77.47 90)
+		(at 201.93 72.39 90)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -1863,7 +2417,7 @@
 		(fields_autoplaced yes)
 		(uuid "06a91437-b108-4a16-a08f-07a0062bbc9a")
 		(property "Reference" "#PWR041"
-			(at 200.66 77.47 0)
+			(at 208.28 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1872,7 +2426,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 198.12 77.4699 90)
+			(at 205.74 72.3899 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1881,7 +2435,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 194.31 77.47 0)
+			(at 201.93 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1890,7 +2444,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 194.31 77.47 0)
+			(at 201.93 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1899,7 +2453,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 194.31 77.47 0)
+			(at 201.93 72.39 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1911,7 +2465,7 @@
 			(uuid "6a3a32ac-168f-4658-9bc7-bb84c011f5ed")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR041")
 					(unit 1)
@@ -1979,9 +2533,78 @@
 			(uuid "b033ad4d-ebb9-4dcf-a2ac-fab431ec7415")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "R18")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 190.5 76.2 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "0e45bf70-5fa0-4504-b8e9-949ae8cb2b2b")
+		(property "Reference" "C9"
+			(at 184.912 73.152 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100nF"
+			(at 182.626 75.184 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+			(at 191.4652 80.01 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 190.5 76.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 190.5 76.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "b285995b-9b1d-4fb5-99de-315dd6af34d1")
+		)
+		(pin "2"
+			(uuid "14fc41f9-7b42-4ded-bf44-e1c0e4c57a72")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "C9")
 					(unit 1)
 				)
 			)
@@ -2049,9 +2672,146 @@
 			(uuid "b948a435-44cc-4234-a0bd-43e5a5b68401")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "L2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 195.58 76.2 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "2e031359-5146-4b16-80c3-bb9935ccdc52")
+		(property "Reference" "C11"
+			(at 198.374 74.168 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "10uF"
+			(at 198.12 76.708 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric"
+			(at 196.5452 80.01 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 195.58 76.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 195.58 76.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "ffec21df-9b9e-4891-b9bc-402de3a2245c")
+		)
+		(pin "2"
+			(uuid "cfce574d-dab6-4d22-9db7-a6abc46366b0")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "C11")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Diode:BAT54J")
+		(at 226.06 82.55 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "2e74f591-2e29-41d3-883f-8ed62dc33432")
+		(property "Reference" "D12"
+			(at 225.7425 76.2 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "BAT54J"
+			(at 225.7425 78.74 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Diode_SMD:D_SOD-323F"
+			(at 226.06 86.995 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://assets.nexperia.com/documents/data-sheet/BAT54J.pdf"
+			(at 226.06 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "30V 200mA Schottky diode, SOD-323F"
+			(at 226.06 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "463e8442-c253-4a58-8822-ed2c162f2541")
+		)
+		(pin "1"
+			(uuid "b1f2a1f3-6a7d-4843-9cd2-738531523aa9")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "D12")
 					(unit 1)
 				)
 			)
@@ -2115,7 +2875,7 @@
 			(uuid "5ad594f3-9c78-4a3f-a8ec-caccd6b330d2")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR038")
 					(unit 1)
@@ -2184,7 +2944,7 @@
 			(uuid "20bccee3-a419-47a3-b6df-2fad50b7435a")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "D5")
 					(unit 1)
@@ -2247,7 +3007,7 @@
 			(uuid "d0bd2199-fcad-4274-8187-e6025cff4b40")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR036")
 					(unit 1)
@@ -2257,7 +3017,7 @@
 	)
 	(symbol
 		(lib_id "power:+3.3V")
-		(at 195.58 82.55 270)
+		(at 201.93 80.01 270)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -2265,7 +3025,7 @@
 		(dnp no)
 		(uuid "5d12dcff-cbda-47b7-9a43-d79908e60de1")
 		(property "Reference" "#PWR033"
-			(at 191.77 82.55 0)
+			(at 198.12 80.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2274,7 +3034,7 @@
 			)
 		)
 		(property "Value" "+3.3V"
-			(at 199.9044 82.9183 0)
+			(at 206.248 78.486 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2282,7 +3042,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 195.58 82.55 0)
+			(at 201.93 80.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2290,7 +3050,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 195.58 82.55 0)
+			(at 201.93 80.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2298,7 +3058,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3.3V\""
-			(at 195.58 82.55 0)
+			(at 201.93 80.01 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2310,7 +3070,7 @@
 			(uuid "072792d4-4cca-46bb-acee-fa570fc8a54a")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR033")
 					(unit 1)
@@ -2380,7 +3140,7 @@
 			(uuid "4c627318-99c5-472c-b21f-d339ad9ae1c3")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "R17")
 					(unit 1)
@@ -2446,7 +3206,7 @@
 			(uuid "b4db0e6d-287b-4fae-99a4-5825252621ed")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR035")
 					(unit 1)
@@ -2513,7 +3273,7 @@
 			(uuid "17921dff-c385-4f37-bcbe-39cf04775dba")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR045")
 					(unit 1)
@@ -2583,9 +3343,79 @@
 			(uuid "85979b76-5b43-4e75-a00a-9871a0812605")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "J6")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C_Polarized")
+		(at 201.93 86.36 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "bb8adc8c-86f3-408f-a6a4-e352895bc1d1")
+		(property "Reference" "C10"
+			(at 205.74 84.2009 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "0.1F LCSC part C970391"
+			(at 205.74 86.7409 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm"
+			(at 202.8952 90.17 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 201.93 86.36 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Polarized capacitor"
+			(at 201.93 86.36 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "3aff581c-744b-4499-8e09-85d827740840")
+		)
+		(pin "1"
+			(uuid "3501246c-5788-42d9-a533-0cfb9a12475c")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "C10")
 					(unit 1)
 				)
 			)
@@ -2650,9 +3480,138 @@
 			(uuid "6e3350ff-2fd4-4f36-8d2e-ee19605904f9")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "R24")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+3.3V")
+		(at 232.41 82.55 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "bfcb05d8-8e8f-4cb3-a6de-67006246829e")
+		(property "Reference" "#PWR013"
+			(at 228.6 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3.3V"
+			(at 236.7344 82.9183 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 232.41 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 232.41 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3.3V\""
+			(at 232.41 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "822e6a46-6876-46e6-88db-9f11d6c1f6ec")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "#PWR013")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 201.93 92.71 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c38ce0bc-a233-42c8-b5b8-1861db791ac1")
+		(property "Reference" "#PWR014"
+			(at 201.93 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 201.93 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 201.93 92.71 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 201.93 92.71 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 201.93 92.71 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "293bc9a6-debe-41fc-b280-9bba33ee3286")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "#PWR014")
 					(unit 1)
 				)
 			)
@@ -2713,7 +3672,7 @@
 			(uuid "c44fef23-393a-42b1-baef-8718b63825d9")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR037")
 					(unit 1)
@@ -2780,7 +3739,7 @@
 			(uuid "052f741c-9aae-4aaf-b450-158f3e9218f4")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR034")
 					(unit 1)
@@ -2916,9 +3875,77 @@
 			(uuid "8206ffb1-8e2c-4f2a-a9f3-601931c814d9")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "U1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 214.63 82.55 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "d6d577b8-94be-4e84-8201-cbb087aadd5c")
+		(property "Reference" "R1"
+			(at 214.63 76.2 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "100R"
+			(at 214.63 78.74 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
+			(at 214.63 84.328 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 214.63 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 214.63 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "7ae9d1b1-8dd4-48bd-b149-03565b27df1a")
+		)
+		(pin "1"
+			(uuid "209d29f3-857f-4da0-bb58-bb8dcdc91248")
+		)
+		(instances
+			(project "Perfect-Vision-ECU"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
+					(reference "R1")
 					(unit 1)
 				)
 			)
@@ -2982,7 +4009,7 @@
 			(uuid "86da887f-b4a4-4c0c-940f-2d404c4ee257")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "#PWR043")
 					(unit 1)
@@ -3049,7 +4076,7 @@
 			(uuid "4257a44b-04d6-4749-9d70-11a189d06a36")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "R19")
 					(unit 1)
@@ -3117,7 +4144,7 @@
 			(uuid "81575ac2-677e-4cd9-a2d2-3f7ba98ad610")
 		)
 		(instances
-			(project "Raspberry-Pi-Backup-power-and-GPS-hat-v4"
+			(project "Perfect-Vision-ECU"
 				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/98b16fc4-0a81-4129-a485-6788042b67b4"
 					(reference "R16")
 					(unit 1)
