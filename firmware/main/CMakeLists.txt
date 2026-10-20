@@ -24,5 +24,4 @@ idf_component_register(
         esp-tls
     PRIV_REQUIRES
         esp_app_format
-        esp_driver_uart
 )
