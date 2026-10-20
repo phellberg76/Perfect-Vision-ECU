@@ -1,0 +1,28 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "ble_nus.c"
+        "can_manager.c"
+        "can_buffer.c"
+        "wifi_ota.c"
+        "gps.c"
+    INCLUDE_DIRS
+        "."
+        "include"
+    REQUIRES
+        driver
+        esp_timer
+        nvs_flash
+        bt
+        esp_wifi
+        esp_http_client
+        esp_https_ota
+        esp_netif
+        espressif__cjson
+        mcp2515
+        app_update
+        esp-tls
+    PRIV_REQUIRES
+        esp_app_format
+        esp_driver_uart
+)

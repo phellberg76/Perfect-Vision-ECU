@@ -17,3 +17,9 @@ tmp*.rpt
 
 # Claude Code settings
 .claude/
+
+# ESP-IDF build artifacts
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/dist/

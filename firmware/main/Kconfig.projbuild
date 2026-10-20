@@ -1,0 +1,72 @@
+menu "Perfect Vision ECU Configuration"
+
+    choice PV_CAN_BITRATE
+        prompt "CAN Bus Bitrate"
+        default PV_CAN_BITRATE_250K
+        help
+            Select the CAN bus bitrate for both CAN channels.
+            250 kbps is common for agricultural equipment (ISOBUS).
+
+        config PV_CAN_BITRATE_125K
+            bool "125 kbps"
+        config PV_CAN_BITRATE_250K
+            bool "250 kbps (ISOBUS standard)"
+        config PV_CAN_BITRATE_500K
+            bool "500 kbps"
+        config PV_CAN_BITRATE_1M
+            bool "1 Mbps"
+    endchoice
+
+    config PV_CAN_BUFFER_SIZE
+        int "CAN message buffer size"
+        default 256
+        range 64 1024
+        help
+            Number of CAN messages to buffer before BLE transmission.
+            Larger buffer reduces chance of message loss at high bus loads.
+
+    config PV_BLE_DEVICE_NAME_PREFIX
+        string "BLE device name prefix"
+        default "PerfectVision"
+        help
+            Prefix for the BLE device name. The MAC address suffix
+            will be appended automatically.
+
+    menu "GPIO Pin Configuration"
+        config PV_CAN0_TX_GPIO
+            int "CAN0 (TWAI) TX GPIO"
+            default 4
+            range 0 48
+
+        config PV_CAN0_RX_GPIO
+            int "CAN0 (TWAI) RX GPIO"
+            default 5
+            range 0 48
+
+        config PV_MCP2515_CS_GPIO
+            int "MCP2515 SPI CS GPIO"
+            default 10
+            range 0 48
+
+        config PV_MCP2515_MOSI_GPIO
+            int "MCP2515 SPI MOSI GPIO"
+            default 11
+            range 0 48
+
+        config PV_MCP2515_CLK_GPIO
+            int "MCP2515 SPI CLK GPIO"
+            default 12
+            range 0 48
+
+        config PV_MCP2515_MISO_GPIO
+            int "MCP2515 SPI MISO GPIO"
+            default 13
+            range 0 48
+
+        config PV_MCP2515_INT_GPIO
+            int "MCP2515 Interrupt GPIO"
+            default 9
+            range 0 48
+    endmenu
+
+endmenu
