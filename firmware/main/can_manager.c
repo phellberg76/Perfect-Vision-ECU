@@ -8,6 +8,7 @@
 #include "pin_config.h"
 #include "mcp2515.h"
 
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 // Suppress legacy TWAI deprecation warning (TODO: migrate to new esp_twai.h API)
