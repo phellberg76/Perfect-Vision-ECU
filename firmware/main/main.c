@@ -55,6 +55,9 @@ static char s_firmware_hash[65] = {0};
 // Current request ID (for including in responses)
 static int s_current_request_id = -1;
 
+// WiFi scan request ID (saved because scan is async)
+static int s_wifi_scan_request_id = -1;
+
 // Forward declarations
 static void on_ble_receive(const char *data, size_t len);
 static void on_ble_connection_change(bool connected);
@@ -212,8 +215,12 @@ static void handle_wifi_scan_cmd(void)
         return;
     }
 
+    // Save the request ID for the async callback
+    s_wifi_scan_request_id = s_current_request_id;
+
     esp_err_t err = wifi_scan_start(on_wifi_scan_result);
     if (err != ESP_OK) {
+        s_wifi_scan_request_id = -1;
         send_error(52, "Failed to start WiFi scan");
     }
     // Results sent via callback
@@ -395,6 +402,12 @@ static void on_wifi_scan_result(const wifi_scan_result_t *results, size_t count,
     cJSON *json = cJSON_CreateObject();
     cJSON_AddStringToObject(json, "type", "wifi_scan_result");
 
+    // Use saved request ID (not current, since scan is async)
+    if (s_wifi_scan_request_id >= 0) {
+        cJSON_AddNumberToObject(json, "id", s_wifi_scan_request_id);
+        s_wifi_scan_request_id = -1;  // Clear after use
+    }
+
     if (error_msg) {
         cJSON_AddBoolToObject(json, "success", false);
         cJSON_AddStringToObject(json, "error", error_msg);
@@ -413,7 +426,13 @@ static void on_wifi_scan_result(const wifi_scan_result_t *results, size_t count,
         cJSON_AddItemToObject(json, "networks", networks);
     }
 
-    send_json_response(json);
+    // Send directly without using send_json_response (which would add wrong id)
+    char *str = cJSON_PrintUnformatted(json);
+    if (str) {
+        ble_nus_send(str, 0);
+        free(str);
+    }
+    cJSON_Delete(json);
 }
 
 // -----------------------------------------------------------------------------

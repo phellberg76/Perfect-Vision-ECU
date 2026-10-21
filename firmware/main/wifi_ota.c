@@ -231,10 +231,9 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         case HTTP_EVENT_ON_CONNECTED:
             ESP_LOGI(TAG, "HTTP connected");
             if (evt->client && strlen(s_auth_token) > 0) {
-                char auth_header[2100];
-                snprintf(auth_header, sizeof(auth_header), "Bearer %s", s_auth_token);
-                esp_http_client_set_header(evt->client, "Authorization", auth_header);
-                ESP_LOGI(TAG, "Authorization header set");
+                // Use X-Firmware-Key header for firmware API authentication
+                esp_http_client_set_header(evt->client, "X-Firmware-Key", s_auth_token);
+                ESP_LOGI(TAG, "Firmware API key header set");
             }
             s_http_client = evt->client;
             break;
