@@ -10,7 +10,9 @@ idf_component_register(
         "."
         "include"
     REQUIRES
-        driver
+        esp_driver_twai
+        esp_driver_uart
+        esp_driver_gpio
         esp_timer
         nvs_flash
         bt
