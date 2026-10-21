@@ -45,7 +45,7 @@ static bool s_wifi_initialized = false;
 static char s_ssid[33];
 static char s_password[65];
 static char s_url[512];
-static char s_auth_token[2048];
+static char s_auth_token[128];  // API key (MD5 = 32 chars)
 static size_t s_expected_size = 0;
 static char s_expected_hash[65];
 
@@ -228,18 +228,25 @@ static esp_http_client_handle_t s_http_client = NULL;
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id) {
+        case HTTP_EVENT_ERROR:
+            ESP_LOGE(TAG, "HTTP error");
+            break;
         case HTTP_EVENT_ON_CONNECTED:
             ESP_LOGI(TAG, "HTTP connected");
-            if (evt->client && strlen(s_auth_token) > 0) {
-                // Use X-Firmware-Key header for firmware API authentication
-                esp_http_client_set_header(evt->client, "X-Firmware-Key", s_auth_token);
-                ESP_LOGI(TAG, "Firmware API key header set");
-            }
             s_http_client = evt->client;
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            ESP_LOGD(TAG, "HTTP header: %s = %s", evt->header_key, evt->header_value);
+            break;
+        case HTTP_EVENT_ON_DATA:
+            ESP_LOGD(TAG, "HTTP data received: %d bytes", evt->data_len);
             break;
         case HTTP_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "HTTP disconnected");
             s_http_client = NULL;
+            break;
+        case HTTP_EVENT_REDIRECT:
+            ESP_LOGI(TAG, "HTTP redirect");
             break;
         default:
             break;
@@ -249,35 +256,63 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 
 static esp_err_t download_and_apply_ota(void)
 {
+    // Build URL with API key as query parameter
+    // Server accepts ?key=xxx for authentication (MD5 hash = 32 chars)
+    static char url_with_key[600];
+    size_t auth_len = strlen(s_auth_token);
+    if (auth_len > 0 && auth_len <= 64) {  // Only use short API keys (MD5 = 32 chars)
+        // Check if URL already has query params
+        const char *sep = strchr(s_url, '?') ? "&" : "?";
+        snprintf(url_with_key, sizeof(url_with_key), "%s%skey=%.64s", s_url, sep, s_auth_token);
+        ESP_LOGI(TAG, "OTA URL with auth: %s", url_with_key);
+    } else {
+        strncpy(url_with_key, s_url, sizeof(url_with_key) - 1);
+        url_with_key[sizeof(url_with_key) - 1] = '\0';
+        ESP_LOGI(TAG, "OTA URL: %s", url_with_key);
+    }
+
     esp_http_client_config_t http_config = {
-        .url = s_url,
+        .url = url_with_key,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 30000,
+        .timeout_ms = 60000,  // Increased timeout for large files
         .keep_alive_enable = true,
         .event_handler = http_event_handler,
-        .buffer_size = 2048,
-        .buffer_size_tx = 2048,
+        .buffer_size = 4096,  // Increased buffer
+        .buffer_size_tx = 1024,
+        .skip_cert_common_name_check = true,  // Allow certificate CN mismatch
     };
 
     esp_https_ota_config_t ota_config = {
         .http_config = &http_config,
     };
 
+    ESP_LOGI(TAG, "Starting HTTPS OTA download...");
+
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_https_ota_begin failed: %s", esp_err_to_name(err));
-        report_progress(WIFI_OTA_STATUS_ERROR, -1, 0, s_expected_size,
-                       "Failed to start download");
+        ESP_LOGE(TAG, "esp_https_ota_begin failed: %s (0x%x)", esp_err_to_name(err), err);
+        const char *error_msg = "Failed to start download";
+        if (err == ESP_ERR_HTTP_CONNECT) {
+            error_msg = "Cannot connect to server";
+        } else if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
+            error_msg = "Server returned invalid data";
+        } else if (err == ESP_FAIL) {
+            error_msg = "SSL/TLS handshake failed";
+        }
+        report_progress(WIFI_OTA_STATUS_ERROR, -1, 0, s_expected_size, error_msg);
         return err;
     }
 
-    if (s_http_client) {
-        int content_length = esp_http_client_get_content_length(s_http_client);
-        if (content_length > 0) {
-            s_expected_size = content_length;
-            ESP_LOGI(TAG, "Firmware size from server: %zu bytes", s_expected_size);
-        }
+    ESP_LOGI(TAG, "HTTPS OTA connection established");
+
+    // Get firmware size from OTA handle (this is the proper API)
+    int image_size = esp_https_ota_get_image_size(ota_handle);
+    if (image_size > 0) {
+        s_expected_size = (size_t)image_size;
+        ESP_LOGI(TAG, "Firmware size from server: %zu bytes (%zu KB)", s_expected_size, s_expected_size / 1024);
+    } else {
+        ESP_LOGW(TAG, "Could not determine firmware size (Content-Length not provided)");
     }
 
     int last_progress = -1;
