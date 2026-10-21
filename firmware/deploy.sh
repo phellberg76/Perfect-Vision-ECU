@@ -10,7 +10,6 @@ cd "$SCRIPT_DIR"
 # Default settings
 PORT=""
 BAUD_RATE=460800
-MONITOR=false
 CLEAN=false
 BUILD_ONLY=false
 
@@ -26,16 +25,14 @@ usage() {
     echo "Options:"
     echo "  -p, --port PORT     Serial port (auto-detected if not specified)"
     echo "  -b, --baud RATE     Baud rate (default: 460800)"
-    echo "  -m, --monitor       Open serial monitor after flashing"
     echo "  -c, --clean         Clean build before compiling"
     echo "  --build-only        Build without flashing"
     echo "  -h, --help          Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                      # Build and flash (auto-detect port)"
-    echo "  $0 -p /dev/ttyUSB0      # Flash to specific port"
-    echo "  $0 -m                   # Flash and open monitor"
-    echo "  $0 -c -m                # Clean build, flash, and monitor"
+    echo "  $0                      # Build, flash, and monitor"
+    echo "  $0 -p /dev/ttyUSB0      # Use specific port"
+    echo "  $0 -c                   # Clean build first"
 }
 
 log_info() {
@@ -72,11 +69,17 @@ detect_port() {
     fi
 }
 
-# Check ESP-IDF environment
-check_idf() {
+# Source ESP-IDF environment if needed
+setup_idf() {
     if [ -z "$IDF_PATH" ]; then
-        log_error "ESP-IDF environment not set. Run: source \$IDF_PATH/export.sh"
-        exit 1
+        if [ -f "$HOME/esp/esp-idf/export.sh" ]; then
+            log_info "Sourcing ESP-IDF environment..."
+            source "$HOME/esp/esp-idf/export.sh"
+        else
+            log_error "ESP-IDF not found at ~/esp/esp-idf"
+            log_error "Install ESP-IDF or set IDF_PATH manually"
+            exit 1
+        fi
     fi
 
     if ! command -v idf.py &> /dev/null; then
@@ -97,10 +100,6 @@ while [[ $# -gt 0 ]]; do
         -b|--baud)
             BAUD_RATE="$2"
             shift 2
-            ;;
-        -m|--monitor)
-            MONITOR=true
-            shift
             ;;
         -c|--clean)
             CLEAN=true
@@ -126,8 +125,14 @@ done
 log_info "Perfect Vision ECU Deployment"
 echo "================================"
 
-# Check ESP-IDF
-check_idf
+# Setup ESP-IDF environment
+setup_idf
+
+# Clean corrupted build directory if it exists but isn't valid
+if [ -d "build" ] && [ ! -f "build/CMakeCache.txt" ]; then
+    log_warn "Found corrupted build directory, removing..."
+    rm -rf build
+fi
 
 # Set target if not already configured
 if [ ! -f "sdkconfig" ]; then
@@ -138,7 +143,7 @@ fi
 # Clean build if requested
 if [ "$CLEAN" = true ]; then
     log_info "Cleaning build directory..."
-    idf.py fullclean
+    rm -rf build
 fi
 
 # Build
@@ -167,8 +172,6 @@ idf.py -p "$PORT" -b "$BAUD_RATE" flash
 
 log_info "Flash complete!"
 
-# Monitor if requested
-if [ "$MONITOR" = true ]; then
-    log_info "Starting serial monitor (Ctrl+] to exit)..."
-    idf.py -p "$PORT" monitor
-fi
+# Start serial monitor
+log_info "Starting serial monitor (Ctrl+] to exit)..."
+idf.py -p "$PORT" monitor
