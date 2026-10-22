@@ -40,9 +40,9 @@
 #define RELAY_CONTROL_GPIO  GPIO_NUM_8
 
 // =============================================================================
-// Status LED (optional, adjust based on hardware)
+// Status LED (active high)
 // =============================================================================
-// #define STATUS_LED_GPIO     GPIO_NUM_XX
+#define STATUS_LED_GPIO     GPIO_NUM_46
 
 // =============================================================================
 // GPS Module (NEO-M9N)

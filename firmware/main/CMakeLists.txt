@@ -6,6 +6,7 @@ idf_component_register(
         "can_buffer.c"
         "wifi_ota.c"
         "gps.c"
+        "status_led.c"
     INCLUDE_DIRS
         "."
         "include"

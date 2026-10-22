@@ -7,6 +7,7 @@
 #include "can_buffer.h"
 #include "pin_config.h"
 #include "mcp2515.h"
+#include "status_led.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -100,6 +101,8 @@ static bool IRAM_ATTR twai_error_cb(twai_node_handle_t handle,
 {
     ESP_EARLY_LOGW(TAG, "TWAI error: 0x%lx", edata->err_flags.val);
     s_can0_error_count++;
+    // Signal error via status LED (safe to call from ISR context)
+    status_led_signal_error();
     return false;
 }
 
@@ -230,6 +233,8 @@ static void can1_task(void *arg)
             s_can1_error_count++;
             ESP_LOGW(TAG, "CAN1 receive error: %s (count=%lu)", esp_err_to_name(ret),
                      (unsigned long)s_can1_error_count);
+            // Signal error via status LED
+            status_led_signal_error();
         }
     }
 

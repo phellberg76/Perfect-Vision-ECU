@@ -46,6 +46,7 @@
 #include "ble_nus.h"
 #include "wifi_ota.h"
 #include "gps.h"
+#include "status_led.h"
 
 static const char *TAG = "main";
 
@@ -359,7 +360,13 @@ static void on_ble_connection_change(bool connected)
 {
     ESP_LOGI(TAG, "BLE %s", connected ? "connected" : "disconnected");
 
-    if (!connected) {
+    if (connected) {
+        // BLE connected: slow 1Hz blink
+        status_led_set_state(STATUS_LED_BLINK_1HZ);
+    } else {
+        // BLE disconnected: solid ON (waiting for connection)
+        status_led_set_state(STATUS_LED_SOLID);
+
         // Abort WiFi OTA if disconnected
         if (wifi_ota_is_active()) {
             ESP_LOGW(TAG, "BLE disconnected during OTA, aborting...");
@@ -512,6 +519,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    // Initialize status LED early
+    ret = status_led_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Status LED init failed: %s (continuing)", esp_err_to_name(ret));
+    }
+
     // Mark current firmware as valid (for rollback protection)
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t ota_state;
@@ -573,5 +586,9 @@ void app_main(void)
     ESP_LOGI(TAG, "CAN0: TWAI (TX=%d, RX=%d)", CAN0_TX_GPIO, CAN0_RX_GPIO);
     ESP_LOGI(TAG, "CAN1: MCP2515 (CS=%d, INT=%d)", MCP2515_CS_GPIO, MCP2515_INT_GPIO);
     ESP_LOGI(TAG, "GPS: UART%d (TX=%d, RX=%d)", GPS_UART_NUM, GPS_TX_GPIO, GPS_RX_GPIO);
+
+    // Setup complete: solid LED ON
+    status_led_set_state(STATUS_LED_SOLID);
+
     ESP_LOGI(TAG, "Waiting for BLE connection...");
 }

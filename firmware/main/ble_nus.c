@@ -4,6 +4,7 @@
  */
 
 #include "ble_nus.h"
+#include "status_led.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -405,6 +406,7 @@ esp_err_t ble_nus_send(const char *data, size_t len)
         int rc = ble_gatts_notify_custom(s_conn_handle, s_tx_attr_handle, om);
         if (rc != 0) {
             ESP_LOGE(TAG, "Error sending notification: rc=%d", rc);
+            status_led_signal_error();
             return ESP_FAIL;
         }
 
@@ -449,6 +451,7 @@ esp_err_t ble_nus_send_binary(const uint8_t *data, size_t len)
         int rc = ble_gatts_notify_custom(s_conn_handle, s_tx_attr_handle, om);
         if (rc != 0) {
             ESP_LOGE(TAG, "Error sending notification: rc=%d", rc);
+            status_led_signal_error();
             return ESP_FAIL;
         }
 
@@ -481,6 +484,7 @@ esp_err_t ble_nus_send_can(const uint8_t *data, size_t len)
     int rc = ble_gatts_notify_custom(s_conn_handle, s_can_attr_handle, om);
     if (rc != 0) {
         ESP_LOGE(TAG, "Error sending CAN notification: rc=%d", rc);
+        status_led_signal_error();
         return ESP_FAIL;
     }
 
@@ -510,6 +514,7 @@ esp_err_t ble_nus_send_gps(const char *json, size_t len)
     int rc = ble_gatts_notify_custom(s_conn_handle, s_gps_attr_handle, om);
     if (rc != 0) {
         ESP_LOGE(TAG, "Error sending GPS notification: rc=%d", rc);
+        status_led_signal_error();
         return ESP_FAIL;
     }
 
