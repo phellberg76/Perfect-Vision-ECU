@@ -5,6 +5,7 @@ idf_component_register(
         "can_manager.c"
         "can_buffer.c"
         "wifi_ota.c"
+        "wifi_transfer.c"
         "gps.c"
         "status_led.c"
         "web_log.c"

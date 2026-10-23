@@ -3,9 +3,10 @@
  * @brief Status LED control for Perfect Vision ECU
  *
  * LED states:
- * - Solid ON: Setup complete, waiting for BLE connection
+ * - Solid ON: Setup complete, waiting for connection
  * - 1Hz blink: BLE connected and operating normally
- * - 10Hz blink: CAN or BLE error detected
+ * - 2Hz blink: SPP connected (high throughput mode)
+ * - 10Hz blink: CAN or Bluetooth error detected
  */
 
 #ifndef STATUS_LED_H
@@ -20,6 +21,7 @@ typedef enum {
     STATUS_LED_OFF,         // LED off
     STATUS_LED_SOLID,       // Solid on
     STATUS_LED_BLINK_1HZ,   // 1Hz blink (BLE connected)
+    STATUS_LED_BLINK_2HZ,   // 2Hz blink (SPP connected - high throughput)
     STATUS_LED_BLINK_10HZ,  // 10Hz blink (error)
 } status_led_state_t;
 

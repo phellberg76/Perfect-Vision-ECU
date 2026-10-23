@@ -89,6 +89,11 @@ static void error_timer_callback(TimerHandle_t timer)
         xTimerStart(s_blink_timer, 0);
         break;
 
+    case STATUS_LED_BLINK_2HZ:
+        xTimerChangePeriod(s_blink_timer, pdMS_TO_TICKS(250), 0);
+        xTimerStart(s_blink_timer, 0);
+        break;
+
     case STATUS_LED_BLINK_10HZ:
         // Stay in error state
         break;
@@ -117,6 +122,13 @@ static void update_blink_timer(void)
         // 1Hz = 500ms period (on 250ms, off 250ms)
         set_led(true);
         xTimerChangePeriod(s_blink_timer, pdMS_TO_TICKS(500), 0);
+        xTimerStart(s_blink_timer, 0);
+        break;
+
+    case STATUS_LED_BLINK_2HZ:
+        // 2Hz = 250ms period (on 125ms, off 125ms)
+        set_led(true);
+        xTimerChangePeriod(s_blink_timer, pdMS_TO_TICKS(250), 0);
         xTimerStart(s_blink_timer, 0);
         break;
 

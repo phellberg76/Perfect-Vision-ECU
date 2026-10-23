@@ -48,6 +48,7 @@
 #include "gps.h"
 #include "status_led.h"
 #include "web_log.h"
+#include "wifi_transfer.h"
 
 static const char *TAG = "main";
 
@@ -72,6 +73,8 @@ static void on_wifi_ota_progress(wifi_ota_status_t status, int progress,
                                   size_t received, size_t total, const char *message);
 static void on_wifi_scan_result(const wifi_scan_result_t *results, size_t count,
                                  const char *error_msg);
+static void on_wifi_transfer_state_change(wifi_transfer_state_t state);
+static void on_wifi_transfer_receive(const uint8_t *data, size_t len);
 
 // -----------------------------------------------------------------------------
 // Response Helpers
@@ -525,6 +528,204 @@ static void handle_web_log_cmd(cJSON *json)
     }
 }
 
+/**
+ * @brief Handle WiFi transfer connect command
+ *
+ * JSON format:
+ * {
+ *   "cmd": "wifi_connect",
+ *   "ssid": "hotspot_ssid",
+ *   "pass": "hotspot_password",
+ *   "ip": "192.168.43.1",
+ *   "port": 8765
+ * }
+ */
+static void handle_wifi_connect_cmd(cJSON *json)
+{
+    // Check if web_log is using WiFi
+    if (web_log_is_running()) {
+        send_error(90, "Web log is using WiFi, stop it first");
+        return;
+    }
+
+    // Check if OTA is using WiFi
+    if (wifi_ota_is_active()) {
+        send_error(91, "OTA is using WiFi");
+        return;
+    }
+
+    // Parse SSID
+    cJSON *ssid_item = cJSON_GetObjectItem(json, "ssid");
+    if (!cJSON_IsString(ssid_item) || strlen(ssid_item->valuestring) == 0) {
+        send_error(92, "Missing 'ssid'");
+        return;
+    }
+
+    // Parse password
+    cJSON *pass_item = cJSON_GetObjectItem(json, "pass");
+    if (!cJSON_IsString(pass_item)) {
+        send_error(93, "Missing 'pass'");
+        return;
+    }
+
+    // Parse host IP
+    cJSON *ip_item = cJSON_GetObjectItem(json, "ip");
+    if (!cJSON_IsString(ip_item) || strlen(ip_item->valuestring) == 0) {
+        send_error(94, "Missing 'ip'");
+        return;
+    }
+
+    // Parse port
+    cJSON *port_item = cJSON_GetObjectItem(json, "port");
+    if (!cJSON_IsNumber(port_item)) {
+        send_error(95, "Missing 'port'");
+        return;
+    }
+    uint16_t port = (uint16_t)port_item->valuedouble;
+
+    ESP_LOGI(TAG, "WiFi connect: ssid=%s ip=%s port=%d",
+             ssid_item->valuestring, ip_item->valuestring, port);
+
+    // Start connection (async - state callback will notify when ready)
+    esp_err_t err = wifi_transfer_connect(
+        ssid_item->valuestring,
+        pass_item->valuestring,
+        ip_item->valuestring,
+        port);
+
+    if (err == ESP_OK) {
+        send_ok("WiFi transfer connected");
+    } else {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "WiFi connect failed: %s", esp_err_to_name(err));
+        send_error(96, msg);
+    }
+}
+
+/**
+ * @brief Handle WiFi transfer disconnect command
+ */
+static void handle_wifi_disconnect_cmd(void)
+{
+    if (!wifi_transfer_is_ready() && wifi_transfer_get_state() == WIFI_TRANSFER_DISCONNECTED) {
+        send_ok("Already disconnected");
+        return;
+    }
+
+    esp_err_t err = wifi_transfer_disconnect();
+    if (err == ESP_OK) {
+        send_ok("WiFi transfer disconnected");
+    } else {
+        send_error(97, "WiFi disconnect failed");
+    }
+}
+
+/**
+ * @brief Handle WiFi transfer status command
+ */
+static void handle_wifi_status_cmd(void)
+{
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "type", "wifi_status");
+
+    wifi_transfer_state_t state = wifi_transfer_get_state();
+    const char *state_str;
+    switch (state) {
+        case WIFI_TRANSFER_DISCONNECTED: state_str = "disconnected"; break;
+        case WIFI_TRANSFER_CONNECTING:   state_str = "connecting"; break;
+        case WIFI_TRANSFER_CONNECTED:    state_str = "connected"; break;
+        case WIFI_TRANSFER_READY:        state_str = "ready"; break;
+        case WIFI_TRANSFER_ERROR:        state_str = "error"; break;
+        default:                         state_str = "unknown"; break;
+    }
+    cJSON_AddStringToObject(resp, "state", state_str);
+    cJSON_AddBoolToObject(resp, "ready", wifi_transfer_is_ready());
+
+    uint32_t tx_bytes, rx_bytes, tx_frames;
+    wifi_transfer_get_stats(&tx_bytes, &rx_bytes, &tx_frames);
+    cJSON_AddNumberToObject(resp, "tx_bytes", tx_bytes);
+    cJSON_AddNumberToObject(resp, "rx_bytes", rx_bytes);
+    cJSON_AddNumberToObject(resp, "tx_frames", tx_frames);
+
+    send_json_response(resp);
+}
+
+// -----------------------------------------------------------------------------
+// WiFi Transfer Callbacks
+// -----------------------------------------------------------------------------
+
+static void on_wifi_transfer_state_change(wifi_transfer_state_t state)
+{
+    // Update LED state based on WiFi transfer status
+    if (state == WIFI_TRANSFER_READY) {
+        status_led_set_state(STATUS_LED_BLINK_2HZ);  // Fast blink = high-speed mode
+        ESP_LOGI(TAG, "WiFi transfer ready - CAN data will stream over WiFi");
+    } else if (state == WIFI_TRANSFER_DISCONNECTED || state == WIFI_TRANSFER_ERROR) {
+        if (ble_nus_is_connected()) {
+            status_led_set_state(STATUS_LED_BLINK_1HZ);  // Back to BLE mode
+        } else {
+            status_led_set_state(STATUS_LED_SOLID);
+        }
+        ESP_LOGI(TAG, "WiFi transfer disconnected - CAN data will stream over BLE");
+    }
+
+    // Notify app of state change via BLE
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "type", "wifi_transfer_state");
+
+    const char *state_str;
+    switch (state) {
+        case WIFI_TRANSFER_DISCONNECTED: state_str = "disconnected"; break;
+        case WIFI_TRANSFER_CONNECTING:   state_str = "connecting"; break;
+        case WIFI_TRANSFER_CONNECTED:    state_str = "connected"; break;
+        case WIFI_TRANSFER_READY:        state_str = "ready"; break;
+        case WIFI_TRANSFER_ERROR:        state_str = "error"; break;
+        default:                         state_str = "unknown"; break;
+    }
+    cJSON_AddStringToObject(json, "state", state_str);
+    send_json_response(json);
+}
+
+/**
+ * @brief Handle data received over WiFi TCP connection
+ *
+ * Expects CAN frames in binary format:
+ *   [1 byte: channel] [4 bytes: CAN ID big-endian] [1 byte: DLC] [8 bytes: data]
+ *   = 14 bytes per frame
+ */
+static void on_wifi_transfer_receive(const uint8_t *data, size_t len)
+{
+    // Process complete 14-byte CAN frames
+    size_t offset = 0;
+    while (offset + 14 <= len) {
+        const uint8_t *frame = data + offset;
+
+        uint8_t channel = frame[0];
+        uint32_t can_id = (frame[1] << 24) | (frame[2] << 16) | (frame[3] << 8) | frame[4];
+        uint8_t dlc = frame[5];
+        const uint8_t *frame_data = &frame[6];
+
+        // Validate
+        if (channel > 1 || dlc > 8) {
+            ESP_LOGW(TAG, "Invalid WiFi CAN frame: ch=%d dlc=%d", channel, dlc);
+            offset += 14;
+            continue;
+        }
+
+        // Send the CAN frame (assume extended ID for ISOBUS)
+        esp_err_t err = can_manager_send((can_channel_t)channel, can_id, frame_data, dlc, true);
+        if (err != ESP_OK) {
+            ESP_LOGD(TAG, "WiFi CAN TX failed: %s", esp_err_to_name(err));
+        }
+
+        offset += 14;
+    }
+
+    if (offset < len) {
+        ESP_LOGD(TAG, "WiFi RX: %zu trailing bytes", len - offset);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // BLE Callbacks
 // -----------------------------------------------------------------------------
@@ -598,6 +799,15 @@ static void on_ble_receive(const char *data, size_t len)
     else if (strcmp(cmd, "web_log") == 0) {
         handle_web_log_cmd(json);
     }
+    else if (strcmp(cmd, "wifi_connect") == 0) {
+        handle_wifi_connect_cmd(json);
+    }
+    else if (strcmp(cmd, "wifi_disconnect") == 0) {
+        handle_wifi_disconnect_cmd();
+    }
+    else if (strcmp(cmd, "wifi_status") == 0) {
+        handle_wifi_status_cmd();
+    }
     else {
         ESP_LOGW(TAG, "Unknown command: %s", cmd);
         send_error(3, "Unknown command");
@@ -611,11 +821,23 @@ static void on_ble_connection_change(bool connected)
     ESP_LOGI(TAG, "BLE %s", connected ? "connected" : "disconnected");
 
     if (connected) {
-        // BLE connected: slow 1Hz blink
-        status_led_set_state(STATUS_LED_BLINK_1HZ);
+        // BLE connected - check if WiFi transfer is active
+        if (wifi_transfer_is_ready()) {
+            // Keep 2Hz blink for WiFi mode
+            status_led_set_state(STATUS_LED_BLINK_2HZ);
+        } else {
+            // BLE-only mode: slow 1Hz blink
+            status_led_set_state(STATUS_LED_BLINK_1HZ);
+        }
     } else {
-        // BLE disconnected: solid ON (waiting for connection)
-        status_led_set_state(STATUS_LED_SOLID);
+        // BLE disconnected
+        if (wifi_transfer_is_ready()) {
+            // WiFi still active - keep 2Hz blink
+            status_led_set_state(STATUS_LED_BLINK_2HZ);
+        } else {
+            // No connections: solid ON (waiting for connection)
+            status_led_set_state(STATUS_LED_SOLID);
+        }
 
         // Reset binary TX mode on disconnect
         if (s_can_tx_binary_mode) {
@@ -715,43 +937,66 @@ static void can_stream_task(void *arg)
     ESP_LOGI(TAG, "CAN streaming task started");
 
     while (1) {
-        if (ble_nus_is_connected() && can_manager_is_running()) {
+        bool wifi_ready = wifi_transfer_is_ready();
+        bool ble_connected = ble_nus_is_connected();
+
+        if ((wifi_ready || ble_connected) && can_manager_is_running()) {
             size_t count = can_buffer_count();
             if (count > 0) {
-                // Read up to 4 messages at a time (76 bytes - fits well in BLE MTU)
-                can_message_t msgs[4];
-                size_t read_count = can_buffer_read(msgs, 4);
+                if (wifi_ready) {
+                    // WiFi mode: high throughput - read many messages at once
+                    can_message_t msgs[32];
+                    size_t read_count = can_buffer_read(msgs, 32);
 
-                if (read_count > 0) {
-                    // Send on dedicated CAN characteristic (UUID ...0004)
-                    esp_err_t err = ble_nus_send_can((uint8_t*)msgs, read_count * sizeof(can_message_t));
-
-                    if (err == ESP_OK) {
-                        s_ble_notify_success++;
-                        // Successful send - decrease backoff (min 15ms for BLE interval)
-                        if (s_ble_notify_backoff_ms > 15) {
-                            s_ble_notify_backoff_ms--;
+                    if (read_count > 0) {
+                        // Send each frame over WiFi TCP
+                        for (size_t i = 0; i < read_count; i++) {
+                            wifi_transfer_send_can_frame(
+                                msgs[i].id,
+                                msgs[i].data,
+                                msgs[i].dlc);
                         }
+                        // WiFi can handle high rates - minimal delay
+                        vTaskDelay(pdMS_TO_TICKS(1));
                     } else {
-                        s_ble_notify_fail++;
-                        // Failed - increase backoff (max 100ms)
-                        if (s_ble_notify_backoff_ms < 100) {
-                            s_ble_notify_backoff_ms += 10;
-                        }
-                        // Log occasionally
-                        if ((s_ble_notify_fail % 100) == 1) {
-                            ESP_LOGW(TAG, "BLE notify congestion: %lu fails, backoff=%lums",
-                                     (unsigned long)s_ble_notify_fail,
-                                     (unsigned long)s_ble_notify_backoff_ms);
-                        }
+                        vTaskDelay(pdMS_TO_TICKS(5));
                     }
-
-                    vTaskDelay(pdMS_TO_TICKS(s_ble_notify_backoff_ms));
                 } else {
-                    vTaskDelay(pdMS_TO_TICKS(20));
+                    // BLE mode: limited throughput - read few messages with backoff
+                    can_message_t msgs[4];
+                    size_t read_count = can_buffer_read(msgs, 4);
+
+                    if (read_count > 0) {
+                        // Send on dedicated CAN characteristic (UUID ...0004)
+                        esp_err_t err = ble_nus_send_can((uint8_t*)msgs, read_count * sizeof(can_message_t));
+
+                        if (err == ESP_OK) {
+                            s_ble_notify_success++;
+                            // Successful send - decrease backoff (min 15ms for BLE interval)
+                            if (s_ble_notify_backoff_ms > 15) {
+                                s_ble_notify_backoff_ms--;
+                            }
+                        } else {
+                            s_ble_notify_fail++;
+                            // Failed - increase backoff (max 100ms)
+                            if (s_ble_notify_backoff_ms < 100) {
+                                s_ble_notify_backoff_ms += 10;
+                            }
+                            // Log occasionally
+                            if ((s_ble_notify_fail % 100) == 1) {
+                                ESP_LOGW(TAG, "BLE notify congestion: %lu fails, backoff=%lums",
+                                         (unsigned long)s_ble_notify_fail,
+                                         (unsigned long)s_ble_notify_backoff_ms);
+                            }
+                        }
+
+                        vTaskDelay(pdMS_TO_TICKS(s_ble_notify_backoff_ms));
+                    } else {
+                        vTaskDelay(pdMS_TO_TICKS(20));
+                    }
                 }
             } else {
-                vTaskDelay(pdMS_TO_TICKS(30));
+                vTaskDelay(pdMS_TO_TICKS(wifi_ready ? 5 : 30));
             }
         } else {
             // Reset backoff when disconnected
@@ -854,6 +1099,15 @@ void app_main(void)
         return;
     }
     ble_nus_set_connection_callback(on_ble_connection_change);
+
+    // Initialize WiFi transfer (for high-speed data streaming)
+    ret = wifi_transfer_init(on_wifi_transfer_receive);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi transfer init failed: %s (continuing without WiFi)", esp_err_to_name(ret));
+    } else {
+        wifi_transfer_set_state_callback(on_wifi_transfer_state_change);
+        ESP_LOGI(TAG, "WiFi transfer initialized");
+    }
 
     ESP_LOGI(TAG, "Device name: %s", ble_nus_get_device_name());
     ESP_LOGI(TAG, "Firmware hash: %s", get_firmware_hash());
