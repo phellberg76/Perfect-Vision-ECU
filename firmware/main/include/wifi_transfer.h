@@ -4,6 +4,15 @@
  *
  * Connects to a phone's WiFi hotspot for high-throughput CAN data streaming.
  * BLE is used to provision the WiFi credentials and for command/control.
+ *
+ * TODO: OTA Relay via Tablet Hotspot
+ * Since we're already connected to the tablet's hotspot for CAN streaming,
+ * we could use this connection for OTA updates as well:
+ * - Tablet downloads firmware from cloud and serves it locally
+ * - ESP32 fetches OTA from tablet's IP (e.g., http://192.168.43.1:8080/firmware.bin)
+ * - Eliminates need to provision separate WiFi credentials for OTA
+ * - Works in field conditions without external WiFi
+ * See also: flutter_example/lib/services/wifi_transfer_service.dart
  */
 
 #ifndef WIFI_TRANSFER_H
