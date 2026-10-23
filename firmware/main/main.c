@@ -705,6 +705,11 @@ static void on_wifi_scan_result(const wifi_scan_result_t *results, size_t count,
 // CAN Data Streaming Task
 // -----------------------------------------------------------------------------
 
+// BLE notification congestion tracking
+static uint32_t s_ble_notify_success = 0;
+static uint32_t s_ble_notify_fail = 0;
+static uint32_t s_ble_notify_backoff_ms = 20;  // Start with 20ms
+
 static void can_stream_task(void *arg)
 {
     ESP_LOGI(TAG, "CAN streaming task started");
@@ -713,21 +718,44 @@ static void can_stream_task(void *arg)
         if (ble_nus_is_connected() && can_manager_is_running()) {
             size_t count = can_buffer_count();
             if (count > 0) {
-                // Read up to 8 messages at a time
-                can_message_t msgs[8];
-                size_t read_count = can_buffer_read(msgs, 8);
+                // Read up to 4 messages at a time (76 bytes - fits well in BLE MTU)
+                can_message_t msgs[4];
+                size_t read_count = can_buffer_read(msgs, 4);
 
                 if (read_count > 0) {
                     // Send on dedicated CAN characteristic (UUID ...0004)
-                    ble_nus_send_can((uint8_t*)msgs, read_count * sizeof(can_message_t));
-                    vTaskDelay(pdMS_TO_TICKS(5));
+                    esp_err_t err = ble_nus_send_can((uint8_t*)msgs, read_count * sizeof(can_message_t));
+
+                    if (err == ESP_OK) {
+                        s_ble_notify_success++;
+                        // Successful send - decrease backoff (min 15ms for BLE interval)
+                        if (s_ble_notify_backoff_ms > 15) {
+                            s_ble_notify_backoff_ms--;
+                        }
+                    } else {
+                        s_ble_notify_fail++;
+                        // Failed - increase backoff (max 100ms)
+                        if (s_ble_notify_backoff_ms < 100) {
+                            s_ble_notify_backoff_ms += 10;
+                        }
+                        // Log occasionally
+                        if ((s_ble_notify_fail % 100) == 1) {
+                            ESP_LOGW(TAG, "BLE notify congestion: %lu fails, backoff=%lums",
+                                     (unsigned long)s_ble_notify_fail,
+                                     (unsigned long)s_ble_notify_backoff_ms);
+                        }
+                    }
+
+                    vTaskDelay(pdMS_TO_TICKS(s_ble_notify_backoff_ms));
                 } else {
-                    vTaskDelay(pdMS_TO_TICKS(10));
+                    vTaskDelay(pdMS_TO_TICKS(20));
                 }
             } else {
-                vTaskDelay(pdMS_TO_TICKS(20));
+                vTaskDelay(pdMS_TO_TICKS(30));
             }
         } else {
+            // Reset backoff when disconnected
+            s_ble_notify_backoff_ms = 20;
             vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
