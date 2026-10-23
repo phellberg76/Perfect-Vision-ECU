@@ -362,14 +362,16 @@ static void handle_can_tx_mode_cmd(cJSON *json)
         bool enable = cJSON_IsTrue(enabled_item);
 
         if (enable && !s_can_tx_binary_mode) {
-            // Enable binary TX mode
+            // Send response FIRST before changing mode (mode change may affect BLE TX)
+            send_ok("Binary TX mode enabled");
+
+            // Then enable binary TX mode
             ble_nus_set_binary_mode(true, on_ble_binary_receive);
             s_can_tx_binary_mode = true;
             s_can_tx_frame_count = 0;
             ESP_LOGI(TAG, "Binary CAN TX mode enabled");
-            send_ok("Binary TX mode enabled");
         } else if (!enable && s_can_tx_binary_mode) {
-            // Disable binary TX mode
+            // Disable binary TX mode first
             ble_nus_set_binary_mode(false, NULL);
             s_can_tx_binary_mode = false;
             ESP_LOGI(TAG, "Binary CAN TX mode disabled (sent %lu frames)",
