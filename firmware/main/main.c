@@ -365,6 +365,9 @@ static void handle_can_tx_mode_cmd(cJSON *json)
             // Send response FIRST before changing mode (mode change may affect BLE TX)
             send_ok("Binary TX mode enabled");
 
+            // Wait for BLE stack to transmit response before changing mode
+            vTaskDelay(pdMS_TO_TICKS(100));
+
             // Then enable binary TX mode
             ble_nus_set_binary_mode(true, on_ble_binary_receive);
             s_can_tx_binary_mode = true;
