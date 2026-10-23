@@ -59,8 +59,13 @@ static int s_current_request_id = -1;
 // WiFi scan request ID (saved because scan is async)
 static int s_wifi_scan_request_id = -1;
 
+// Binary CAN TX mode
+static bool s_can_tx_binary_mode = false;
+static uint32_t s_can_tx_frame_count = 0;
+
 // Forward declarations
 static void on_ble_receive(const char *data, size_t len);
+static void on_ble_binary_receive(const uint8_t *data, size_t len);
 static void on_ble_connection_change(bool connected);
 static void on_wifi_ota_progress(wifi_ota_status_t status, int progress,
                                   size_t received, size_t total, const char *message);
@@ -204,6 +209,184 @@ static void handle_clear_stats_cmd(void)
     send_ok("Statistics cleared");
 }
 
+/**
+ * @brief Handle CAN send command
+ *
+ * JSON format:
+ * {
+ *   "cmd": "can_send",
+ *   "ch": 1,                    // Channel: 0 or 1
+ *   "id": 418119462,            // CAN ID (decimal)
+ *   "ext": true,                // Extended ID (optional, default true)
+ *   "dlc": 8,                   // Data length 0-8
+ *   "data": [1,2,3,4,5,6,7,8]   // Data bytes array
+ * }
+ */
+static void handle_can_send_cmd(cJSON *json)
+{
+    // Parse channel
+    cJSON *ch_item = cJSON_GetObjectItem(json, "ch");
+    if (!cJSON_IsNumber(ch_item)) {
+        send_error(70, "Missing 'ch' (channel)");
+        return;
+    }
+    int channel = (int)ch_item->valuedouble;
+    if (channel < 0 || channel > 1) {
+        send_error(71, "Invalid channel (must be 0 or 1)");
+        return;
+    }
+
+    // Parse CAN ID
+    cJSON *id_item = cJSON_GetObjectItem(json, "id");
+    if (!cJSON_IsNumber(id_item)) {
+        send_error(72, "Missing 'id' (CAN ID)");
+        return;
+    }
+    uint32_t can_id = (uint32_t)id_item->valuedouble;
+
+    // Parse extended ID flag (default true for ISOBUS)
+    bool extended = true;
+    cJSON *ext_item = cJSON_GetObjectItem(json, "ext");
+    if (cJSON_IsBool(ext_item)) {
+        extended = cJSON_IsTrue(ext_item);
+    }
+
+    // Parse DLC
+    cJSON *dlc_item = cJSON_GetObjectItem(json, "dlc");
+    if (!cJSON_IsNumber(dlc_item)) {
+        send_error(73, "Missing 'dlc'");
+        return;
+    }
+    int dlc = (int)dlc_item->valuedouble;
+    if (dlc < 0 || dlc > 8) {
+        send_error(74, "Invalid DLC (must be 0-8)");
+        return;
+    }
+
+    // Parse data array
+    cJSON *data_item = cJSON_GetObjectItem(json, "data");
+    if (!cJSON_IsArray(data_item)) {
+        send_error(75, "Missing 'data' array");
+        return;
+    }
+
+    uint8_t data[8] = {0};
+    int data_len = cJSON_GetArraySize(data_item);
+    if (data_len > 8) data_len = 8;
+
+    for (int i = 0; i < data_len; i++) {
+        cJSON *byte_item = cJSON_GetArrayItem(data_item, i);
+        if (cJSON_IsNumber(byte_item)) {
+            data[i] = (uint8_t)byte_item->valuedouble;
+        }
+    }
+
+    // Send the CAN frame
+    esp_err_t err = can_manager_send((can_channel_t)channel, can_id, data, (uint8_t)dlc, extended);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "CAN TX: ch=%d id=0x%08lX dlc=%d", channel, (unsigned long)can_id, dlc);
+        send_ok("CAN frame sent");
+    } else {
+        ESP_LOGE(TAG, "CAN TX failed: %s", esp_err_to_name(err));
+        send_error(76, "CAN send failed");
+    }
+}
+
+/**
+ * @brief Handle binary CAN TX data
+ *
+ * Parses 19-byte CAN frames and sends them on the bus.
+ * Frame format (same as RX stream):
+ *   [0]      channel (0 or 1)
+ *   [1-4]    timestamp (ignored for TX, can be used as sequence)
+ *   [5-8]    CAN ID (little-endian)
+ *   [9]      flags: bit0=extended, bit1=RTR
+ *   [10]     DLC (0-8)
+ *   [11-18]  data bytes
+ */
+static void on_ble_binary_receive(const uint8_t *data, size_t len)
+{
+    // Process complete 19-byte frames
+    size_t offset = 0;
+    while (offset + 19 <= len) {
+        const uint8_t *frame = data + offset;
+
+        uint8_t channel = frame[0];
+        // timestamp at frame[1-4] - ignored for TX
+        uint32_t can_id = frame[5] | (frame[6] << 8) | (frame[7] << 16) | (frame[8] << 24);
+        uint8_t flags = frame[9];
+        uint8_t dlc = frame[10];
+        const uint8_t *frame_data = &frame[11];
+
+        bool extended = (flags & 0x01) != 0;
+        // RTR flag at bit 1 - not typically used for TX
+
+        // Validate
+        if (channel > 1 || dlc > 8) {
+            ESP_LOGW(TAG, "Invalid binary frame: ch=%d dlc=%d", channel, dlc);
+            offset += 19;
+            continue;
+        }
+
+        // Send the CAN frame
+        esp_err_t err = can_manager_send((can_channel_t)channel, can_id, frame_data, dlc, extended);
+        if (err == ESP_OK) {
+            s_can_tx_frame_count++;
+        } else {
+            ESP_LOGD(TAG, "Binary CAN TX failed: %s", esp_err_to_name(err));
+        }
+
+        offset += 19;
+    }
+
+    // Log any trailing bytes
+    if (offset < len) {
+        ESP_LOGD(TAG, "Binary RX: %zu trailing bytes (incomplete frame)", len - offset);
+    }
+}
+
+/**
+ * @brief Handle CAN TX mode command
+ *
+ * JSON format:
+ * {"cmd":"can_tx_mode","enabled":true}   - Enable binary TX mode
+ * {"cmd":"can_tx_mode","enabled":false}  - Disable binary TX mode
+ * {"cmd":"can_tx_mode"}                  - Query current mode
+ */
+static void handle_can_tx_mode_cmd(cJSON *json)
+{
+    cJSON *enabled_item = cJSON_GetObjectItem(json, "enabled");
+
+    if (cJSON_IsBool(enabled_item)) {
+        bool enable = cJSON_IsTrue(enabled_item);
+
+        if (enable && !s_can_tx_binary_mode) {
+            // Enable binary TX mode
+            ble_nus_set_binary_mode(true, on_ble_binary_receive);
+            s_can_tx_binary_mode = true;
+            s_can_tx_frame_count = 0;
+            ESP_LOGI(TAG, "Binary CAN TX mode enabled");
+            send_ok("Binary TX mode enabled");
+        } else if (!enable && s_can_tx_binary_mode) {
+            // Disable binary TX mode
+            ble_nus_set_binary_mode(false, NULL);
+            s_can_tx_binary_mode = false;
+            ESP_LOGI(TAG, "Binary CAN TX mode disabled (sent %lu frames)",
+                     (unsigned long)s_can_tx_frame_count);
+            send_ok("Binary TX mode disabled");
+        } else {
+            send_ok(s_can_tx_binary_mode ? "Already in binary mode" : "Already in JSON mode");
+        }
+    } else {
+        // Query mode - return current state
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "status");
+        cJSON_AddBoolToObject(resp, "binary_tx_mode", s_can_tx_binary_mode);
+        cJSON_AddNumberToObject(resp, "tx_frame_count", s_can_tx_frame_count);
+        send_json_response(resp);
+    }
+}
+
 static void handle_wifi_scan_cmd(void)
 {
     if (wifi_ota_is_active()) {
@@ -336,6 +519,12 @@ static void on_ble_receive(const char *data, size_t len)
     else if (strcmp(cmd, "clear_stats") == 0) {
         handle_clear_stats_cmd();
     }
+    else if (strcmp(cmd, "can_send") == 0) {
+        handle_can_send_cmd(json);
+    }
+    else if (strcmp(cmd, "can_tx_mode") == 0) {
+        handle_can_tx_mode_cmd(json);
+    }
     else if (strcmp(cmd, "wifi_scan") == 0) {
         handle_wifi_scan_cmd();
     }
@@ -366,6 +555,15 @@ static void on_ble_connection_change(bool connected)
     } else {
         // BLE disconnected: solid ON (waiting for connection)
         status_led_set_state(STATUS_LED_SOLID);
+
+        // Reset binary TX mode on disconnect
+        if (s_can_tx_binary_mode) {
+            ble_nus_set_binary_mode(false, NULL);
+            ESP_LOGI(TAG, "Binary TX mode reset (sent %lu frames)",
+                     (unsigned long)s_can_tx_frame_count);
+            s_can_tx_binary_mode = false;
+            s_can_tx_frame_count = 0;
+        }
 
         // Abort WiFi OTA if disconnected
         if (wifi_ota_is_active()) {
