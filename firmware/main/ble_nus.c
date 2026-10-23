@@ -391,39 +391,47 @@ esp_err_t ble_nus_send(const char *data, size_t len)
         len = strlen(data);
     }
 
+    // Allocate buffer with space for newline terminator (avoid separate notification)
+    char *buf = malloc(len + 1);
+    if (buf == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate send buffer");
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(buf, data, len);
+    buf[len] = '\n';
+    size_t total_len = len + 1;
+
     const size_t chunk_size = 180;
     size_t offset = 0;
+    esp_err_t result = ESP_OK;
 
-    while (offset < len) {
-        size_t send_len = (len - offset > chunk_size) ? chunk_size : (len - offset);
+    while (offset < total_len) {
+        size_t send_len = (total_len - offset > chunk_size) ? chunk_size : (total_len - offset);
 
-        struct os_mbuf *om = ble_hs_mbuf_from_flat(data + offset, send_len);
+        struct os_mbuf *om = ble_hs_mbuf_from_flat(buf + offset, send_len);
         if (om == NULL) {
             ESP_LOGE(TAG, "Failed to allocate mbuf");
-            return ESP_ERR_NO_MEM;
+            result = ESP_ERR_NO_MEM;
+            break;
         }
 
         int rc = ble_gatts_notify_custom(s_conn_handle, s_tx_attr_handle, om);
         if (rc != 0) {
             ESP_LOGE(TAG, "Error sending notification: rc=%d", rc);
             status_led_signal_error();
-            return ESP_FAIL;
+            result = ESP_FAIL;
+            break;
         }
 
         offset += send_len;
 
-        if (offset < len) {
+        if (offset < total_len) {
             vTaskDelay(pdMS_TO_TICKS(15));
         }
     }
 
-    // Send newline terminator
-    struct os_mbuf *om = ble_hs_mbuf_from_flat("\n", 1);
-    if (om != NULL) {
-        ble_gatts_notify_custom(s_conn_handle, s_tx_attr_handle, om);
-    }
-
-    return ESP_OK;
+    free(buf);
+    return result;
 }
 
 esp_err_t ble_nus_send_binary(const uint8_t *data, size_t len)
