@@ -47,6 +47,7 @@
 #include "wifi_ota.h"
 #include "gps.h"
 #include "status_led.h"
+#include "web_log.h"
 
 static const char *TAG = "main";
 
@@ -467,6 +468,58 @@ static void handle_reboot_cmd(void)
     esp_restart();
 }
 
+/**
+ * @brief Handle web log command
+ *
+ * JSON format:
+ * {"cmd":"web_log","enabled":true}   - Start web log server
+ * {"cmd":"web_log","enabled":false}  - Stop web log server
+ * {"cmd":"web_log"}                  - Query status
+ *
+ * When enabled, connects to WiFi AP:
+ *   SSID: PV_LOG_XXXXXX (where X is part of MAC)
+ *   Password: pvdebug123
+ *   URL: http://192.168.4.1/
+ */
+static void handle_web_log_cmd(cJSON *json)
+{
+    cJSON *enabled_item = cJSON_GetObjectItem(json, "enabled");
+
+    if (cJSON_IsBool(enabled_item)) {
+        bool enable = cJSON_IsTrue(enabled_item);
+
+        if (enable && !web_log_is_running()) {
+            esp_err_t err = web_log_start();
+            if (err == ESP_OK) {
+                cJSON *resp = cJSON_CreateObject();
+                cJSON_AddStringToObject(resp, "type", "ok");
+                cJSON_AddStringToObject(resp, "message", "Web log started");
+                cJSON_AddStringToObject(resp, "ssid", web_log_get_ssid());
+                cJSON_AddStringToObject(resp, "password", "pvdebug123");
+                cJSON_AddStringToObject(resp, "url", "http://192.168.4.1/");
+                send_json_response(resp);
+            } else {
+                send_error(80, "Failed to start web log");
+            }
+        } else if (!enable && web_log_is_running()) {
+            web_log_stop();
+            send_ok("Web log stopped");
+        } else {
+            send_ok(web_log_is_running() ? "Already running" : "Already stopped");
+        }
+    } else {
+        // Query status
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "status");
+        cJSON_AddBoolToObject(resp, "web_log_running", web_log_is_running());
+        if (web_log_is_running()) {
+            cJSON_AddStringToObject(resp, "ssid", web_log_get_ssid());
+            cJSON_AddStringToObject(resp, "url", "http://192.168.4.1/");
+        }
+        send_json_response(resp);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // BLE Callbacks
 // -----------------------------------------------------------------------------
@@ -536,6 +589,9 @@ static void on_ble_receive(const char *data, size_t len)
     }
     else if (strcmp(cmd, "reboot") == 0) {
         handle_reboot_cmd();
+    }
+    else if (strcmp(cmd, "web_log") == 0) {
+        handle_web_log_cmd(json);
     }
     else {
         ESP_LOGW(TAG, "Unknown command: %s", cmd);

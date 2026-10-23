@@ -7,6 +7,7 @@ idf_component_register(
         "wifi_ota.c"
         "gps.c"
         "status_led.c"
+        "web_log.c"
     INCLUDE_DIRS
         "."
         "include"
@@ -20,6 +21,7 @@ idf_component_register(
         esp_wifi
         esp_http_client
         esp_https_ota
+        esp_http_server
         esp_netif
         espressif__cjson
         mcp2515
