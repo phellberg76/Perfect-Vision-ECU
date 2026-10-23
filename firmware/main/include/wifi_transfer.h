@@ -46,6 +46,18 @@ typedef void (*wifi_transfer_state_callback_t)(wifi_transfer_state_t state);
 typedef void (*wifi_transfer_rx_callback_t)(const uint8_t *data, size_t len);
 
 /**
+ * @brief Callback for debug messages
+ * @param message Debug message string
+ */
+typedef void (*wifi_transfer_debug_callback_t)(const char *message);
+
+/**
+ * @brief Set debug message callback
+ * @param callback Function to call for debug messages
+ */
+void wifi_transfer_set_debug_callback(wifi_transfer_debug_callback_t callback);
+
+/**
  * @brief Initialize WiFi transfer module
  *
  * Sets up WiFi station mode but doesn't connect yet.

@@ -114,6 +114,14 @@ static void send_ok(const char *message)
     send_json_response(json);
 }
 
+static void send_debug(const char *message)
+{
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "type", "debug");
+    cJSON_AddStringToObject(json, "message", message);
+    send_json_response(json);
+}
+
 // -----------------------------------------------------------------------------
 // Firmware Hash
 // -----------------------------------------------------------------------------
@@ -1106,6 +1114,7 @@ void app_main(void)
         ESP_LOGW(TAG, "WiFi transfer init failed: %s (continuing without WiFi)", esp_err_to_name(ret));
     } else {
         wifi_transfer_set_state_callback(on_wifi_transfer_state_change);
+        wifi_transfer_set_debug_callback(send_debug);
         ESP_LOGI(TAG, "WiFi transfer initialized");
     }
 

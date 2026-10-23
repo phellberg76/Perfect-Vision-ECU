@@ -6,6 +6,7 @@
 #include "wifi_transfer.h"
 
 #include <string.h>
+#include <stdarg.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -44,6 +45,22 @@ static uint16_t s_host_port = 0;
 // Callbacks
 static wifi_transfer_rx_callback_t s_rx_callback = NULL;
 static wifi_transfer_state_callback_t s_state_callback = NULL;
+static wifi_transfer_debug_callback_t s_debug_callback = NULL;
+
+// Debug logging helper
+static void debug_log(const char *fmt, ...)
+{
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    ESP_LOGI(TAG, "%s", buf);
+    if (s_debug_callback) {
+        s_debug_callback(buf);
+    }
+}
 
 // Statistics
 static uint32_t s_tx_bytes = 0;
@@ -181,17 +198,17 @@ static esp_err_t tcp_connect(void)
     int flag = 1;
     setsockopt(s_tcp_socket, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-    ESP_LOGI(TAG, "Connecting to %s:%d...", s_host_ip, s_host_port);
+    debug_log("TCP: Connecting to %s:%d...", s_host_ip, s_host_port);
 
     int err = connect(s_tcp_socket, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     if (err != 0) {
-        ESP_LOGE(TAG, "TCP connect failed: %d", errno);
+        debug_log("TCP: connect() failed, errno=%d", errno);
         close(s_tcp_socket);
         s_tcp_socket = -1;
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "TCP connected!");
+    debug_log("TCP: Connected successfully!");
 
     // Start RX task
     xTaskCreate(tcp_rx_task, "tcp_rx", 4096, NULL, 5, &s_rx_task);
@@ -290,6 +307,11 @@ void wifi_transfer_set_state_callback(wifi_transfer_state_callback_t callback)
     s_state_callback = callback;
 }
 
+void wifi_transfer_set_debug_callback(wifi_transfer_debug_callback_t callback)
+{
+    s_debug_callback = callback;
+}
+
 esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
                                  const char *host_ip, uint16_t port)
 {
@@ -328,7 +350,7 @@ esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
     set_state(WIFI_TRANSFER_CONNECTING);
 
     // Start connection
-    ESP_LOGI(TAG, "Connecting to SSID: %s", ssid);
+    debug_log("WiFi: Connecting to SSID=%s, target=%s:%d", ssid, host_ip, port);
     ret = esp_wifi_connect();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(ret));
@@ -343,7 +365,12 @@ esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
                                             pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS));
 
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "WiFi connected, establishing TCP connection...");
+        // Get our IP address for debugging
+        esp_netif_ip_info_t ip_info;
+        esp_netif_get_ip_info(s_sta_netif, &ip_info);
+        debug_log("WiFi: Got IP=" IPSTR ", gateway=" IPSTR,
+                  IP2STR(&ip_info.ip), IP2STR(&ip_info.gw));
+
         set_state(WIFI_TRANSFER_CONNECTED);
 
         // Connect TCP
@@ -355,12 +382,13 @@ esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
             s_tx_frames = 0;
             return ESP_OK;
         } else {
+            debug_log("TCP: Failed, disconnecting WiFi");
             set_state(WIFI_TRANSFER_ERROR);
             esp_wifi_disconnect();
             return ret;
         }
     } else {
-        ESP_LOGE(TAG, "WiFi connection failed or timed out");
+        debug_log("WiFi: Connection failed/timeout (bits=0x%lx)", (unsigned long)bits);
         set_state(WIFI_TRANSFER_ERROR);
         return ESP_ERR_TIMEOUT;
     }
