@@ -7,7 +7,7 @@
 #define CONFIG_H
 
 // Firmware version
-#define FIRMWARE_VERSION    "1.1.0"
+#define FIRMWARE_VERSION    "1.2.0"
 
 // Device model identifier
 #define DEVICE_MODEL        "perfect-vision"
