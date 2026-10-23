@@ -45,6 +45,7 @@ static const ble_uuid128_t nus_gps_char_uuid =
 
 // Connection state
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+static uint16_t s_current_mtu = 23;  // Default BLE MTU, updated on MTU exchange
 static uint16_t s_tx_attr_handle;
 static uint16_t s_can_attr_handle;
 static uint16_t s_gps_attr_handle;
@@ -254,6 +255,26 @@ static int ble_gap_event_handler(struct ble_gap_event *event, void *arg)
             s_connected = true;
             s_rx_buffer_len = 0;
             ESP_LOGI(TAG, "BLE client connected, handle=%d", s_conn_handle);
+
+            // Set preferred MTU - client will initiate exchange
+            // (We're a GATT server so we can't initiate MTU exchange)
+            ble_att_set_preferred_mtu(512);
+
+            // Request faster connection parameters for higher throughput
+            // Min interval: 7.5ms, Max interval: 15ms, Latency: 0, Timeout: 2s
+            struct ble_gap_upd_params conn_params = {
+                .itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN,  // 7.5ms
+                .itvl_max = 12,  // 15ms (units of 1.25ms)
+                .latency = 0,
+                .supervision_timeout = 200,  // 2 seconds (units of 10ms)
+                .min_ce_len = 0,
+                .max_ce_len = 0,
+            };
+            int rc = ble_gap_update_params(s_conn_handle, &conn_params);
+            if (rc != 0) {
+                ESP_LOGW(TAG, "Connection param update failed: rc=%d", rc);
+            }
+
             if (s_connection_callback) {
                 s_connection_callback(true);
             }
@@ -269,6 +290,7 @@ static int ble_gap_event_handler(struct ble_gap_event *event, void *arg)
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_connected = false;
         s_rx_buffer_len = 0;
+        s_current_mtu = 23;  // Reset to default
         if (s_connection_callback) {
             s_connection_callback(false);
         }
@@ -281,6 +303,7 @@ static int ble_gap_event_handler(struct ble_gap_event *event, void *arg)
         break;
 
     case BLE_GAP_EVENT_MTU:
+        s_current_mtu = event->mtu.value;
         ESP_LOGI(TAG, "MTU updated: conn_handle=%d, mtu=%d",
                  event->mtu.conn_handle, event->mtu.value);
         break;
@@ -401,7 +424,8 @@ esp_err_t ble_nus_send(const char *data, size_t len)
     buf[len] = '\n';
     size_t total_len = len + 1;
 
-    const size_t chunk_size = 180;
+    // Use MTU-based chunk size (MTU - 3 for ATT header)
+    const size_t chunk_size = (s_current_mtu > 3) ? (s_current_mtu - 3) : 20;
     size_t offset = 0;
     esp_err_t result = ESP_OK;
 
