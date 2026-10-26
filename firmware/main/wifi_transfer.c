@@ -222,83 +222,11 @@ static esp_err_t tcp_connect(void)
 
 esp_err_t wifi_transfer_init(wifi_transfer_rx_callback_t rx_callback)
 {
-    if (s_initialized) {
-        ESP_LOGW(TAG, "Already initialized");
-        return ESP_OK;
-    }
-
+    // WiFi transfer is currently disabled to avoid conflicts with wifi_ota.
+    // TODO: Re-enable once we implement OTA relay via tablet hotspot,
+    // which will unify WiFi usage (both CAN streaming and OTA use same connection).
+    ESP_LOGI(TAG, "WiFi transfer disabled (use OTA relay via tablet instead)");
     s_rx_callback = rx_callback;
-
-    // Create event group
-    s_wifi_event_group = xEventGroupCreate();
-    if (!s_wifi_event_group) {
-        ESP_LOGE(TAG, "Failed to create event group");
-        return ESP_ERR_NO_MEM;
-    }
-
-    // Initialize TCP/IP stack (might already be done)
-    esp_err_t ret = esp_netif_init();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Create default event loop (might already exist)
-    ret = esp_event_loop_create_default();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Create station interface
-    s_sta_netif = esp_netif_create_default_wifi_sta();
-    if (!s_sta_netif) {
-        ESP_LOGE(TAG, "Failed to create STA netif");
-        return ESP_FAIL;
-    }
-
-    // Initialize WiFi with default config
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Register event handlers
-    esp_event_handler_instance_t instance_wifi;
-    esp_event_handler_instance_t instance_ip;
-
-    ret = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
-                                               &wifi_event_handler, NULL, &instance_wifi);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register WiFi event handler");
-        return ret;
-    }
-
-    ret = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                               &wifi_event_handler, NULL, &instance_ip);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register IP event handler");
-        return ret;
-    }
-
-    // Set WiFi mode to station
-    ret = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    // Start WiFi (but don't connect yet)
-    ret = esp_wifi_start();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    s_initialized = true;
-    ESP_LOGI(TAG, "WiFi transfer initialized");
     return ESP_OK;
 }
 
