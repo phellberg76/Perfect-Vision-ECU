@@ -66,14 +66,32 @@ static const char *TAG = "mcp2515";
 // RXBnCTRL bits
 #define RXBCTRL_RXM_MASK    0x60
 #define RXBCTRL_RXM_ANY     0x60    // Receive any message
+#define RXBCTRL_BUKT        0x04    // RXB0 rollover to RXB1 when full
 
 // Internal handle structure
 struct mcp2515_handle {
     spi_device_handle_t spi;
     gpio_num_t int_gpio;
     SemaphoreHandle_t mutex;
+    SemaphoreHandle_t rx_sem;   // Signaled by ISR when RX interrupt occurs
     bool started;
 };
+
+// ISR service installed flag
+static bool s_isr_service_installed = false;
+
+// GPIO ISR handler - gives semaphore when INT pin goes low (active low)
+static void IRAM_ATTR mcp2515_isr_handler(void *arg)
+{
+    struct mcp2515_handle *handle = (struct mcp2515_handle *)arg;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    xSemaphoreGiveFromISR(handle->rx_sem, &xHigherPriorityTaskWoken);
+
+    if (xHigherPriorityTaskWoken) {
+        portYIELD_FROM_ISR();
+    }
+}
 
 // -----------------------------------------------------------------------------
 // SPI Communication Helpers
@@ -212,6 +230,14 @@ esp_err_t mcp2515_init(const mcp2515_config_t *config, mcp2515_handle_t *out_han
         return ESP_ERR_NO_MEM;
     }
 
+    // Create RX semaphore for interrupt-driven receive
+    handle->rx_sem = xSemaphoreCreateBinary();
+    if (handle->rx_sem == NULL) {
+        vSemaphoreDelete(handle->mutex);
+        free(handle);
+        return ESP_ERR_NO_MEM;
+    }
+
     // Configure SPI bus
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = config->mosi_gpio,
@@ -247,13 +273,13 @@ esp_err_t mcp2515_init(const mcp2515_config_t *config, mcp2515_handle_t *out_han
         return ret;
     }
 
-    // Configure interrupt GPIO (input)
+    // Configure interrupt GPIO (input only for now - ISR added after MCP2515 is ready)
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << config->int_gpio),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,  // Disable until MCP2515 is configured
     };
     gpio_config(&io_conf);
 
@@ -330,7 +356,8 @@ esp_err_t mcp2515_init(const mcp2515_config_t *config, mcp2515_handle_t *out_han
     }
 
     // Configure RX buffers to receive any message
-    mcp2515_write_reg(handle, REG_RXB0CTRL, RXBCTRL_RXM_ANY);
+    // Enable rollover (BUKT) on RXB0 so frames go to RXB1 if RXB0 is full
+    mcp2515_write_reg(handle, REG_RXB0CTRL, RXBCTRL_RXM_ANY | RXBCTRL_BUKT);
     mcp2515_write_reg(handle, REG_RXB1CTRL, RXBCTRL_RXM_ANY);
 
     // Enable interrupts (RX only for now)
@@ -343,6 +370,38 @@ esp_err_t mcp2515_init(const mcp2515_config_t *config, mcp2515_handle_t *out_han
     mcp2515_read_reg(handle, REG_CANINTE, &caninte);
     ESP_LOGI(TAG, "RX config: RXB0CTRL=0x%02X, RXB1CTRL=0x%02X, CANINTE=0x%02X",
              rxb0ctrl, rxb1ctrl, caninte);
+
+    // Now that MCP2515 is configured, set up interrupt-driven RX
+    // Install GPIO ISR service if not already installed
+    if (!s_isr_service_installed) {
+        ret = gpio_install_isr_service(0);  // Use default flags for compatibility
+        if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
+            // ESP_ERR_INVALID_STATE means already installed, which is fine
+            s_isr_service_installed = true;
+        } else {
+            ESP_LOGE(TAG, "Failed to install GPIO ISR service: %s", esp_err_to_name(ret));
+            spi_bus_remove_device(handle->spi);
+            vSemaphoreDelete(handle->rx_sem);
+            vSemaphoreDelete(handle->mutex);
+            free(handle);
+            return ret;
+        }
+    }
+
+    // Add ISR handler for INT pin
+    ret = gpio_isr_handler_add(config->int_gpio, mcp2515_isr_handler, handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to add GPIO ISR handler: %s", esp_err_to_name(ret));
+        spi_bus_remove_device(handle->spi);
+        vSemaphoreDelete(handle->rx_sem);
+        vSemaphoreDelete(handle->mutex);
+        free(handle);
+        return ret;
+    }
+
+    // Enable falling edge interrupt on INT pin (active low)
+    gpio_set_intr_type(config->int_gpio, GPIO_INTR_NEGEDGE);
+    ESP_LOGI(TAG, "Interrupt-driven RX enabled on GPIO %d", config->int_gpio);
 
     ESP_LOGI(TAG, "MCP2515 initialized successfully");
     *out_handle = handle;
@@ -359,7 +418,11 @@ esp_err_t mcp2515_deinit(mcp2515_handle_t handle)
         mcp2515_stop(handle);
     }
 
+    // Remove ISR handler
+    gpio_isr_handler_remove(handle->int_gpio);
+
     spi_bus_remove_device(handle->spi);
+    vSemaphoreDelete(handle->rx_sem);
     vSemaphoreDelete(handle->mutex);
     free(handle);
 
@@ -469,9 +532,12 @@ esp_err_t mcp2515_receive(mcp2515_handle_t handle, mcp2515_message_t *msg,
     }
 
     TickType_t start = xTaskGetTickCount();
+    TickType_t remaining = timeout_ticks;
 
-    while ((xTaskGetTickCount() - start) < timeout_ticks) {
+    while (remaining > 0) {
+        // First, check if there's already data pending (check RX flags without waiting)
         if (xSemaphoreTake(handle->mutex, pdMS_TO_TICKS(5)) != pdTRUE) {
+            remaining = timeout_ticks - (xTaskGetTickCount() - start);
             continue;
         }
 
@@ -491,8 +557,23 @@ esp_err_t mcp2515_receive(mcp2515_handle_t handle, mcp2515_message_t *msg,
         }
 
         if (rx_cmd == 0) {
+            // No data pending - release mutex and wait for interrupt
             xSemaphoreGive(handle->mutex);
-            vTaskDelay(pdMS_TO_TICKS(1));
+
+            // Calculate remaining timeout
+            TickType_t elapsed = xTaskGetTickCount() - start;
+            if (elapsed >= timeout_ticks) {
+                return ESP_ERR_TIMEOUT;
+            }
+            remaining = timeout_ticks - elapsed;
+
+            // Wait for ISR to signal data available (interrupt-driven, no polling!)
+            if (xSemaphoreTake(handle->rx_sem, remaining) != pdTRUE) {
+                return ESP_ERR_TIMEOUT;
+            }
+
+            // ISR signaled - recalculate remaining time and loop to read data
+            remaining = timeout_ticks - (xTaskGetTickCount() - start);
             continue;
         }
 
@@ -508,6 +589,13 @@ esp_err_t mcp2515_receive(mcp2515_handle_t handle, mcp2515_message_t *msg,
 
         // Clear interrupt flag
         mcp2515_bit_modify(handle, REG_CANINTF, clear_flag, 0x00);
+
+        // Check if other buffer has data - if so, give semaphore for immediate re-read
+        uint8_t other_flag = (clear_flag == CANINTF_RX0IF) ? CANINTF_RX1IF : CANINTF_RX0IF;
+        if (intf & other_flag) {
+            // More data pending in other buffer - signal semaphore so caller wakes immediately
+            xSemaphoreGive(handle->rx_sem);
+        }
 
         xSemaphoreGive(handle->mutex);
 

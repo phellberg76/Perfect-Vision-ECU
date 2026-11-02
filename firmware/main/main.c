@@ -591,15 +591,23 @@ static void handle_wifi_connect_cmd(cJSON *json)
     }
     uint16_t port = (uint16_t)port_item->valuedouble;
 
-    ESP_LOGI(TAG, "WiFi connect: ssid=%s ip=%s port=%d",
-             ssid_item->valuestring, ip_item->valuestring, port);
+    // Parse BSSID (optional - for targeting specific AP)
+    cJSON *bssid_item = cJSON_GetObjectItem(json, "bssid");
+    const char *bssid = NULL;
+    if (cJSON_IsString(bssid_item) && strlen(bssid_item->valuestring) > 0) {
+        bssid = bssid_item->valuestring;
+    }
+
+    ESP_LOGI(TAG, "WiFi connect: ssid=%s ip=%s port=%d bssid=%s",
+             ssid_item->valuestring, ip_item->valuestring, port, bssid ? bssid : "any");
 
     // Start connection (async - state callback will notify when ready)
     esp_err_t err = wifi_transfer_connect(
         ssid_item->valuestring,
         pass_item->valuestring,
         ip_item->valuestring,
-        port);
+        port,
+        bssid);
 
     if (err == ESP_OK) {
         send_ok("WiFi transfer connected");
@@ -703,8 +711,11 @@ static void on_wifi_transfer_state_change(wifi_transfer_state_t state)
  */
 static void on_wifi_transfer_receive(const uint8_t *data, size_t len)
 {
+    static int wifi_rx_frame_count = 0;
+
     // Process complete 14-byte CAN frames
     size_t offset = 0;
+    int frames_in_batch = 0;
     while (offset + 14 <= len) {
         const uint8_t *frame = data + offset;
 
@@ -720,13 +731,30 @@ static void on_wifi_transfer_receive(const uint8_t *data, size_t len)
             continue;
         }
 
+        wifi_rx_frame_count++;
+        frames_in_batch++;
+
+        // Log ETP CM frames (PF 0xC8) and TP CM frames (PF 0xEC) which include CTS
+        uint8_t pf = (can_id >> 16) & 0xFF;
+        if (pf == 0xC8 || pf == 0xEC) {
+            ESP_LOGI(TAG, "WiFi->CAN TX: ETP CM ID=0x%08lX data=[%02X %02X %02X %02X %02X %02X %02X %02X]",
+                     (unsigned long)can_id, frame_data[0], frame_data[1], frame_data[2], frame_data[3],
+                     frame_data[4], frame_data[5], frame_data[6], frame_data[7]);
+        }
+
         // Send the CAN frame (assume extended ID for ISOBUS)
         esp_err_t err = can_manager_send((can_channel_t)channel, can_id, frame_data, dlc, true);
         if (err != ESP_OK) {
-            ESP_LOGD(TAG, "WiFi CAN TX failed: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "WiFi CAN TX failed: ID=0x%08lX err=%s", (unsigned long)can_id, esp_err_to_name(err));
         }
 
         offset += 14;
+    }
+
+    // Log every 10th batch to reduce noise
+    if (wifi_rx_frame_count % 10 < frames_in_batch) {
+        ESP_LOGI(TAG, "WiFi RX: %d frames total (%d in batch, %zu bytes)",
+                 wifi_rx_frame_count, frames_in_batch, len);
     }
 
     if (offset < len) {
@@ -940,6 +968,12 @@ static uint32_t s_ble_notify_success = 0;
 static uint32_t s_ble_notify_fail = 0;
 static uint32_t s_ble_notify_backoff_ms = 20;  // Start with 20ms
 
+// WiFi TX diagnostic counters
+static uint32_t s_wifi_tx_ok = 0;
+static uint32_t s_wifi_tx_fail = 0;
+static uint32_t s_wifi_tx_batches = 0;
+static uint32_t s_wifi_not_ready_count = 0;
+
 static void can_stream_task(void *arg)
 {
     ESP_LOGI(TAG, "CAN streaming task started");
@@ -957,12 +991,30 @@ static void can_stream_task(void *arg)
                     size_t read_count = can_buffer_read(msgs, 32);
 
                     if (read_count > 0) {
+                        s_wifi_tx_batches++;
                         // Send each frame over WiFi TCP
+                        int sent_ok = 0;
+                        int send_fail = 0;
                         for (size_t i = 0; i < read_count; i++) {
-                            wifi_transfer_send_can_frame(
+                            esp_err_t err = wifi_transfer_send_can_frame(
                                 msgs[i].id,
                                 msgs[i].data,
                                 msgs[i].dlc);
+                            if (err == ESP_OK) {
+                                sent_ok++;
+                                s_wifi_tx_ok++;
+                            } else {
+                                send_fail++;
+                                s_wifi_tx_fail++;
+                            }
+                        }
+                        // Log TX stats every 100 batches (more frequent for debugging)
+                        if (s_wifi_tx_batches % 100 == 0) {
+                            ESP_LOGI(TAG, "WiFi TX stats: batches=%lu ok=%lu fail=%lu buf=%zu",
+                                     (unsigned long)s_wifi_tx_batches,
+                                     (unsigned long)s_wifi_tx_ok,
+                                     (unsigned long)s_wifi_tx_fail,
+                                     can_buffer_count());
                         }
                         // WiFi can handle high rates - minimal delay
                         vTaskDelay(pdMS_TO_TICKS(1));
@@ -971,6 +1023,13 @@ static void can_stream_task(void *arg)
                     }
                 } else {
                     // BLE mode: limited throughput - read few messages with backoff
+                    s_wifi_not_ready_count++;
+                    // Log when WiFi not ready but BLE is (indicates wifi_transfer_is_ready returning false)
+                    if (s_wifi_not_ready_count % 1000 == 1) {
+                        ESP_LOGW(TAG, "WiFi not ready, using BLE (count=%lu, wifi_state=%d)",
+                                 (unsigned long)s_wifi_not_ready_count,
+                                 wifi_transfer_get_state());
+                    }
                     can_message_t msgs[4];
                     size_t read_count = can_buffer_read(msgs, 4);
 

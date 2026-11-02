@@ -81,10 +81,12 @@ void wifi_transfer_set_state_callback(wifi_transfer_state_callback_t callback);
  * @param password Hotspot password
  * @param host_ip IP address of the host (phone) to connect to
  * @param port TCP port to connect to
+ * @param bssid Optional BSSID (MAC address) of the AP to connect to (NULL for any)
  * @return ESP_OK if connection started (async)
  */
 esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
-                                 const char *host_ip, uint16_t port);
+                                 const char *host_ip, uint16_t port,
+                                 const char *bssid);
 
 /**
  * @brief Disconnect from WiFi hotspot

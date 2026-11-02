@@ -203,10 +203,9 @@ static void can1_task(void *arg)
         if (ret == ESP_OK) {
             s_can1_rx_count++;
 
-            ESP_LOGI(TAG, "CAN1 RX: ID=0x%lX DLC=%d Data=[%02X %02X %02X %02X %02X %02X %02X %02X]",
-                     (unsigned long)rx_msg.id, rx_msg.dlc,
-                     rx_msg.data[0], rx_msg.data[1], rx_msg.data[2], rx_msg.data[3],
-                     rx_msg.data[4], rx_msg.data[5], rx_msg.data[6], rx_msg.data[7]);
+            // NOTE: Per-frame logging disabled - it was causing MCP2515 buffer overflow
+            // during high-speed ETP bursts (16 frames at ~500µs each)
+            // ESP_LOGI takes too long and prevents timely reading of the next frame
 
             // Build buffer message
             can_message_t buf_msg = {
