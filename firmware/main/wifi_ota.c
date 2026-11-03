@@ -568,18 +568,20 @@ static esp_err_t download_and_apply_ota_local(void)
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_https_ota_begin failed: %s (0x%x)", esp_err_to_name(err), err);
-        const char *error_msg;
+        ESP_LOGE(TAG, "esp_https_ota_begin FAILED: %s (0x%x)", esp_err_to_name(err), err);
+        ESP_LOGE(TAG, "URL was: %s", s_local_url);
+        char error_msg[64];
         if (err == ESP_ERR_HTTP_CONNECT) {
-            error_msg = "Cannot connect to tablet HTTP server";
+            snprintf(error_msg, sizeof(error_msg), "HTTP connect failed (0x%x)", err);
         } else if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
-            error_msg = "Invalid firmware response from server";
-        } else if (err == ESP_FAIL) {
-            error_msg = "HTTP connection failed";
+            snprintf(error_msg, sizeof(error_msg), "OTA validate failed (0x%x)", err);
+        } else if (err == ESP_ERR_INVALID_SIZE) {
+            snprintf(error_msg, sizeof(error_msg), "Invalid size (0x%x)", err);
+        } else if (err == ESP_ERR_NOT_FOUND) {
+            snprintf(error_msg, sizeof(error_msg), "Not found 404 (0x%x)", err);
         } else {
-            error_msg = "OTA begin failed";
+            snprintf(error_msg, sizeof(error_msg), "Error 0x%x: %s", err, esp_err_to_name(err));
         }
-        ESP_LOGE(TAG, "Error details: %s, URL: %s", error_msg, s_local_url);
         report_progress(WIFI_OTA_STATUS_ERROR, -1, 0, s_expected_size, error_msg);
         return err;
     }
