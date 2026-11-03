@@ -473,6 +473,44 @@ static void handle_wifi_ota_abort_cmd(void)
     send_ok("OTA abort requested");
 }
 
+/**
+ * @brief Handle local WiFi OTA command (for relay via tablet hotspot)
+ *
+ * JSON format:
+ * {
+ *   "cmd": "wifi_ota_local",
+ *   "url": "http://192.168.43.1:8766/firmware.bin"
+ * }
+ */
+static void handle_wifi_ota_local_cmd(cJSON *json)
+{
+    if (wifi_ota_is_active()) {
+        send_error(64, "OTA already in progress");
+        return;
+    }
+
+    // Check that we're connected to WiFi via wifi_transfer
+    if (wifi_transfer_get_state() != WIFI_TRANSFER_READY &&
+        wifi_transfer_get_state() != WIFI_TRANSFER_CONNECTED) {
+        send_error(65, "Not connected to hotspot - use wifi_connect first");
+        return;
+    }
+
+    cJSON *url_item = cJSON_GetObjectItem(json, "url");
+    if (!cJSON_IsString(url_item) || strlen(url_item->valuestring) == 0) {
+        send_error(66, "Missing 'url'");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Local WiFi OTA: url=%s", url_item->valuestring);
+
+    esp_err_t err = wifi_ota_start_local(url_item->valuestring, on_wifi_ota_progress);
+    if (err != ESP_OK) {
+        send_error(67, "Failed to start local OTA");
+    }
+    // Progress sent via callback
+}
+
 static void handle_reboot_cmd(void)
 {
     ESP_LOGI(TAG, "Reboot requested via BLE");
@@ -828,6 +866,9 @@ static void on_ble_receive(const char *data, size_t len)
     }
     else if (strcmp(cmd, "wifi_ota_abort") == 0) {
         handle_wifi_ota_abort_cmd();
+    }
+    else if (strcmp(cmd, "wifi_ota_local") == 0) {
+        handle_wifi_ota_local_cmd(json);
     }
     else if (strcmp(cmd, "reboot") == 0) {
         handle_reboot_cmd();

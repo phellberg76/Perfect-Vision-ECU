@@ -539,6 +539,180 @@ wifi_ota_status_t wifi_ota_get_status(void)
 }
 
 // ============================================================================
+// Local WiFi OTA (uses existing WiFi connection from wifi_transfer)
+// ============================================================================
+
+static char s_local_url[512] = {0};
+
+static esp_err_t download_and_apply_ota_local(void)
+{
+    ESP_LOGI(TAG, "Local OTA URL: %s", s_local_url);
+
+    // For local HTTP server, don't use HTTPS/certificate validation
+    esp_http_client_config_t http_config = {
+        .url = s_local_url,
+        .timeout_ms = 60000,
+        .keep_alive_enable = true,
+        .event_handler = http_event_handler,
+        .buffer_size = 4096,
+        .buffer_size_tx = 1024,
+    };
+
+    esp_https_ota_config_t ota_config = {
+        .http_config = &http_config,
+    };
+
+    ESP_LOGI(TAG, "Starting local OTA download...");
+
+    esp_https_ota_handle_t ota_handle = NULL;
+    esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_https_ota_begin failed: %s (0x%x)", esp_err_to_name(err), err);
+        const char *error_msg = "Failed to connect to local server";
+        if (err == ESP_ERR_HTTP_CONNECT) {
+            error_msg = "Cannot connect to tablet server";
+        }
+        report_progress(WIFI_OTA_STATUS_ERROR, -1, 0, s_expected_size, error_msg);
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Local OTA connection established");
+
+    int image_size = esp_https_ota_get_image_size(ota_handle);
+    if (image_size > 0) {
+        s_expected_size = (size_t)image_size;
+        ESP_LOGI(TAG, "Firmware size: %zu bytes (%zu KB)", s_expected_size, s_expected_size / 1024);
+    }
+
+    int last_progress = -1;
+
+    while (true) {
+        if (s_abort_requested) {
+            ESP_LOGW(TAG, "Local OTA aborted by user");
+            esp_https_ota_abort(ota_handle);
+            report_progress(WIFI_OTA_STATUS_ERROR, -1, s_bytes_received, s_expected_size,
+                           "Update cancelled");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        err = esp_https_ota_perform(ota_handle);
+
+        if (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+            s_bytes_received = esp_https_ota_get_image_len_read(ota_handle);
+
+            int progress = 5;
+            if (s_expected_size > 0) {
+                progress = 5 + (int)(s_bytes_received * 90 / s_expected_size);
+                if (progress > 95) progress = 95;
+            }
+
+            if (progress != last_progress && (progress % 5 == 0 || progress == 95)) {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Downloading %zu / %zu KB",
+                        s_bytes_received / 1024, s_expected_size / 1024);
+                report_progress(WIFI_OTA_STATUS_DOWNLOADING, progress,
+                               s_bytes_received, s_expected_size, msg);
+                last_progress = progress;
+            }
+            continue;
+        }
+
+        if (err == ESP_OK) {
+            break;
+        }
+
+        ESP_LOGE(TAG, "esp_https_ota_perform failed: %s", esp_err_to_name(err));
+        esp_https_ota_abort(ota_handle);
+        report_progress(WIFI_OTA_STATUS_ERROR, -1, s_bytes_received, s_expected_size,
+                       "Download failed");
+        return err;
+    }
+
+    s_bytes_received = esp_https_ota_get_image_len_read(ota_handle);
+    report_progress(WIFI_OTA_STATUS_VALIDATING, 98, s_bytes_received, s_expected_size,
+                   "Validating firmware...");
+
+    if (!esp_https_ota_is_complete_data_received(ota_handle)) {
+        ESP_LOGE(TAG, "Incomplete firmware received");
+        esp_https_ota_abort(ota_handle);
+        report_progress(WIFI_OTA_STATUS_ERROR, -1, s_bytes_received, s_expected_size,
+                       "Incomplete download");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    err = esp_https_ota_finish(ota_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_https_ota_finish failed: %s", esp_err_to_name(err));
+        report_progress(WIFI_OTA_STATUS_ERROR, -1, s_bytes_received, s_expected_size,
+                       "Firmware validation failed");
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Local OTA update successful!");
+    return ESP_OK;
+}
+
+static void wifi_ota_local_task(void *arg)
+{
+    ESP_LOGI(TAG, "Local WiFi OTA task started");
+    ESP_LOGI(TAG, "URL: %s", s_local_url);
+
+    // Skip WiFi connection - we're already connected via wifi_transfer
+    report_progress(WIFI_OTA_STATUS_DOWNLOADING, 0, 0, s_expected_size,
+                   "Starting download from tablet...");
+
+    esp_err_t err = download_and_apply_ota_local();
+    if (err != ESP_OK) {
+        goto cleanup;
+    }
+
+    report_progress(WIFI_OTA_STATUS_COMPLETE, 100, s_bytes_received, s_expected_size,
+                   "Update complete, rebooting...");
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+
+cleanup:
+    s_active = false;
+    s_ota_task = NULL;
+    ESP_LOGI(TAG, "Local WiFi OTA task exiting");
+    vTaskDelete(NULL);
+}
+
+esp_err_t wifi_ota_start_local(const char *url, wifi_ota_progress_callback_t callback)
+{
+    if (s_active) {
+        ESP_LOGW(TAG, "WiFi OTA already in progress");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (url == NULL || strlen(url) == 0) {
+        ESP_LOGE(TAG, "URL is required");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(s_local_url, 0, sizeof(s_local_url));
+    strncpy(s_local_url, url, sizeof(s_local_url) - 1);
+
+    s_callback = callback;
+    s_active = true;
+    s_abort_requested = false;
+    s_bytes_received = 0;
+    s_expected_size = 0;
+    s_status = WIFI_OTA_STATUS_IDLE;
+
+    BaseType_t ret = xTaskCreate(wifi_ota_local_task, "wifi_ota_local", 8192, NULL, 5, &s_ota_task);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create local WiFi OTA task");
+        s_active = false;
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "Local WiFi OTA started");
+    return ESP_OK;
+}
+
+// ============================================================================
 // WiFi Scanning
 // ============================================================================
 

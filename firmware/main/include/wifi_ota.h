@@ -88,6 +88,19 @@ esp_err_t wifi_ota_start(const wifi_ota_config_t *config, wifi_ota_progress_call
 void wifi_ota_abort(void);
 
 /**
+ * @brief Start local WiFi OTA update (WiFi already connected)
+ *
+ * Use this when ESP32 is already connected to a WiFi network (e.g., via
+ * wifi_transfer to a phone hotspot). Downloads firmware from the local
+ * network without reconnecting WiFi.
+ *
+ * @param url Firmware download URL (HTTP, not HTTPS for local server)
+ * @param callback Progress callback function
+ * @return ESP_OK on successful start, error code otherwise
+ */
+esp_err_t wifi_ota_start_local(const char *url, wifi_ota_progress_callback_t callback);
+
+/**
  * @brief Check if WiFi OTA is in progress
  * @return true if OTA is active
  */
