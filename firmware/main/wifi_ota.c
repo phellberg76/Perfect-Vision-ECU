@@ -549,7 +549,7 @@ static esp_err_t download_and_apply_ota_local(void)
     ESP_LOGI(TAG, "Local OTA URL: %s", s_local_url);
 
     // For local HTTP server, explicitly use HTTP transport (no TLS)
-    // skip_cert_common_name_check is required to bypass ESP-IDF's verification check
+    // use_global_ca_store bypasses ESP-IDF's certificate verification check for HTTP
     esp_http_client_config_t http_config = {
         .url = s_local_url,
         .timeout_ms = 60000,
@@ -558,7 +558,8 @@ static esp_err_t download_and_apply_ota_local(void)
         .buffer_size = 4096,
         .buffer_size_tx = 1024,
         .transport_type = HTTP_TRANSPORT_OVER_TCP,
-        .skip_cert_common_name_check = true,  // Required even for HTTP to bypass verification check
+        .skip_cert_common_name_check = true,
+        .use_global_ca_store = true,  // Bypass certificate check (not used for HTTP)
     };
 
     esp_https_ota_config_t ota_config = {
