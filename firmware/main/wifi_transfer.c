@@ -41,6 +41,12 @@ static bool s_initialized = false;
 // Connection info
 static char s_host_ip[64] = {0};
 static uint16_t s_host_port = 0;
+static char s_ssid[33] = {0};
+static char s_password[65] = {0};
+static char s_bssid[18] = {0};
+
+// Task handle for async connection
+static TaskHandle_t s_connect_task = NULL;
 
 // Callbacks
 static wifi_transfer_rx_callback_t s_rx_callback = NULL;
@@ -466,33 +472,13 @@ static int scan_for_ssid(const char *target_ssid)
     return s_scan_count;
 }
 
-esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
-                                 const char *host_ip, uint16_t port,
-                                 const char *bssid)
+// Forward declaration
+static void wifi_connect_task(void *arg);
+
+// Internal function that does the actual blocking WiFi work
+// Called from the background task, NOT from BLE handler
+static esp_err_t wifi_transfer_connect_internal(void)
 {
-    ESP_LOGI(TAG, "wifi_transfer_connect called: initialized=%d, state=%d",
-             s_initialized, s_state);
-
-    if (!s_initialized) {
-        ESP_LOGE(TAG, "Not initialized - wifi_transfer_init() was not called");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    // If already connected or connecting, disconnect first to allow reconnection
-    // This handles Flutter app restarts gracefully
-    if (s_state != WIFI_TRANSFER_DISCONNECTED) {
-        ESP_LOGI(TAG, "Auto-disconnecting from previous session (state=%d)", s_state);
-        wifi_transfer_disconnect();
-        // Give a moment for cleanup
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-
-    // Store connection info
-    strncpy(s_host_ip, host_ip, sizeof(s_host_ip) - 1);
-    s_host_port = port;
-
-    set_state(WIFI_TRANSFER_CONNECTING);
-
     // Initialize WiFi stack on demand
     esp_err_t ret = init_wifi_stack();
     if (ret != ESP_OK) {
@@ -538,13 +524,13 @@ esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
 
     // Scan for networks with this SSID to find all matching APs
     // This helps when multiple networks have similar names (e.g., AndroidShare_xxxx)
-    int ap_count = scan_for_ssid(ssid);
+    int ap_count = scan_for_ssid(s_ssid);
 
     // If BSSID provided and valid, try that first (skip scan results)
     uint8_t target_bssid[6];
-    bool have_target_bssid = bssid && parse_mac_address(bssid, target_bssid);
+    bool have_target_bssid = s_bssid[0] != '\0' && parse_mac_address(s_bssid, target_bssid);
     if (have_target_bssid) {
-        debug_log("WiFi: Have target BSSID from app: %s", bssid);
+        debug_log("WiFi: Have target BSSID from app: %s", s_bssid);
     }
 
     // Try each AP in order (by RSSI, strongest first)
@@ -561,9 +547,10 @@ rescan_and_try:
     for (int attempt = 0; attempt < max_attempts; attempt++) {
         // Configure WiFi
         wifi_config_t wifi_config = {0};
-        strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
-        strncpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
-        wifi_config.sta.threshold.authmode = strlen(password) > 0 ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+        // Copy SSID/password - memcpy is safe here since s_ssid/s_password are same size as wifi_config fields
+        memcpy(wifi_config.sta.ssid, s_ssid, sizeof(wifi_config.sta.ssid));
+        memcpy(wifi_config.sta.password, s_password, sizeof(wifi_config.sta.password));
+        wifi_config.sta.threshold.authmode = strlen(s_password) > 0 ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
         wifi_config.sta.pmf_cfg.capable = true;
         wifi_config.sta.pmf_cfg.required = false;
 
@@ -572,7 +559,7 @@ rescan_and_try:
             // Use app-provided BSSID
             memcpy(wifi_config.sta.bssid, target_bssid, 6);
             wifi_config.sta.bssid_set = true;
-            debug_log("WiFi: Targeting app BSSID %s", bssid);
+            debug_log("WiFi: Targeting app BSSID %s", s_bssid);
             // Only try app-provided BSSID once
             have_target_bssid = false;
         } else if (ap_count > 0 && s_current_ap_index < ap_count) {
@@ -602,7 +589,7 @@ rescan_and_try:
         s_retry_count = 0;
 
         // Start connection
-        debug_log("WiFi: Connecting to SSID=%s (attempt %d/%d)", ssid, attempt + 1, max_attempts);
+        debug_log("WiFi: Connecting to SSID=%s (attempt %d/%d)", s_ssid, attempt + 1, max_attempts);
         ret = esp_wifi_connect();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(ret));
@@ -670,7 +657,7 @@ rescan_and_try:
         debug_log("WiFi: All APs failed, waiting %dms then rescanning (attempt %d/%d)...",
                   wait_ms, scan_retry + 1, max_scan_retries);
         vTaskDelay(pdMS_TO_TICKS(wait_ms));
-        ap_count = scan_for_ssid(ssid);
+        ap_count = scan_for_ssid(s_ssid);
         goto rescan_and_try;  // Try even if ap_count is 0 (will connect without BSSID)
     }
 
@@ -681,9 +668,104 @@ rescan_and_try:
     return ESP_ERR_TIMEOUT;
 }
 
+// Background task for WiFi connection
+// This runs the blocking WiFi operations without blocking the BLE handler
+static void wifi_connect_task(void *arg)
+{
+    ESP_LOGI(TAG, "WiFi connect task started");
+
+    esp_err_t ret = wifi_transfer_connect_internal();
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi connect task failed: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "WiFi connect task completed successfully");
+    }
+
+    s_connect_task = NULL;
+    vTaskDelete(NULL);
+}
+
+// Public API - spawns background task for async operation
+esp_err_t wifi_transfer_connect(const char *ssid, const char *password,
+                                 const char *host_ip, uint16_t port,
+                                 const char *bssid)
+{
+    ESP_LOGI(TAG, "wifi_transfer_connect called: initialized=%d, state=%d",
+             s_initialized, s_state);
+
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "Not initialized - wifi_transfer_init() was not called");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // If already connected or connecting, disconnect first to allow reconnection
+    // This handles Flutter app restarts gracefully
+    if (s_state != WIFI_TRANSFER_DISCONNECTED) {
+        ESP_LOGI(TAG, "Auto-disconnecting from previous session (state=%d)", s_state);
+        wifi_transfer_disconnect();
+        // Give a moment for cleanup
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    // Wait for any previous connect task to finish
+    if (s_connect_task != NULL) {
+        ESP_LOGW(TAG, "Previous connect task still running, waiting...");
+        int wait_count = 0;
+        while (s_connect_task != NULL && wait_count < 50) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            wait_count++;
+        }
+        if (s_connect_task != NULL) {
+            ESP_LOGE(TAG, "Previous connect task did not finish");
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+
+    // Store connection parameters for the background task
+    strncpy(s_ssid, ssid, sizeof(s_ssid) - 1);
+    s_ssid[sizeof(s_ssid) - 1] = '\0';
+
+    strncpy(s_password, password ? password : "", sizeof(s_password) - 1);
+    s_password[sizeof(s_password) - 1] = '\0';
+
+    strncpy(s_host_ip, host_ip, sizeof(s_host_ip) - 1);
+    s_host_ip[sizeof(s_host_ip) - 1] = '\0';
+
+    s_host_port = port;
+
+    if (bssid && strlen(bssid) > 0) {
+        strncpy(s_bssid, bssid, sizeof(s_bssid) - 1);
+        s_bssid[sizeof(s_bssid) - 1] = '\0';
+    } else {
+        s_bssid[0] = '\0';
+    }
+
+    // Set state before spawning task so BLE gets immediate feedback
+    set_state(WIFI_TRANSFER_CONNECTING);
+
+    // Spawn background task to handle WiFi connection
+    // This returns immediately so BLE handler stays responsive
+    BaseType_t ret = xTaskCreate(wifi_connect_task, "wifi_conn", 6144, NULL, 5, &s_connect_task);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create WiFi connect task");
+        set_state(WIFI_TRANSFER_ERROR);
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "WiFi connect task spawned, returning to BLE handler");
+    return ESP_OK;
+}
+
 esp_err_t wifi_transfer_disconnect(void)
 {
     ESP_LOGI(TAG, "Disconnecting...");
+
+    // If connect task is running, we can't forcefully stop it
+    // Just let it finish naturally - the cleanup below will handle the rest
+    if (s_connect_task != NULL) {
+        ESP_LOGW(TAG, "Connect task still running during disconnect");
+    }
 
     // Close TCP socket
     if (s_tcp_socket >= 0) {
