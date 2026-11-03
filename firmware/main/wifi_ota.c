@@ -548,7 +548,7 @@ static esp_err_t download_and_apply_ota_local(void)
 {
     ESP_LOGI(TAG, "Local OTA URL: %s", s_local_url);
 
-    // For local HTTP server, don't use HTTPS/certificate validation
+    // For local HTTP server, explicitly use HTTP transport (no TLS)
     esp_http_client_config_t http_config = {
         .url = s_local_url,
         .timeout_ms = 60000,
@@ -556,22 +556,30 @@ static esp_err_t download_and_apply_ota_local(void)
         .event_handler = http_event_handler,
         .buffer_size = 4096,
         .buffer_size_tx = 1024,
+        .transport_type = HTTP_TRANSPORT_OVER_TCP,  // Explicitly use plain HTTP
     };
 
     esp_https_ota_config_t ota_config = {
         .http_config = &http_config,
     };
 
-    ESP_LOGI(TAG, "Starting local OTA download...");
+    ESP_LOGI(TAG, "Starting local OTA download from: %s", s_local_url);
 
     esp_https_ota_handle_t ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &ota_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_https_ota_begin failed: %s (0x%x)", esp_err_to_name(err), err);
-        const char *error_msg = "Failed to connect to local server";
+        const char *error_msg;
         if (err == ESP_ERR_HTTP_CONNECT) {
-            error_msg = "Cannot connect to tablet server";
+            error_msg = "Cannot connect to tablet HTTP server";
+        } else if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
+            error_msg = "Invalid firmware response from server";
+        } else if (err == ESP_FAIL) {
+            error_msg = "HTTP connection failed";
+        } else {
+            error_msg = "OTA begin failed";
         }
+        ESP_LOGE(TAG, "Error details: %s, URL: %s", error_msg, s_local_url);
         report_progress(WIFI_OTA_STATUS_ERROR, -1, 0, s_expected_size, error_msg);
         return err;
     }
